@@ -1,0 +1,11 @@
+prefix=/usr/local
+exec_prefix=${prefix}
+includedir=${prefix}/include
+libdir=${exec_prefix}/lib
+
+Name: lite3
+Description: A JSON-Compatible Zero-Copy Serialization Format
+URL: https://lite3.io
+Version: 1.0.0
+Cflags: -I${includedir}
+Libs: -L${libdir} -llite3
