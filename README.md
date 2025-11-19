@@ -4,7 +4,7 @@
 ![](img/lite3_seamless_dark.png)
 ![](img/lite3_infographic_dark.png)
 
-<h2><a href="https://lite3.io">Official Documentation (with examples): lite3.io</a></h2>
+<h2><a href="https://lite3.io/topics.html">Official Documentation (with examples): lite3.io</a></h2>
 
 ## Introduction
 Lite³ is a JSON-compatible zero-copy serialization format able to encode semi-structured data in a lightweight binary format, suitable for embedded and no-malloc environments. The flagship feature is the possibility to apply **mutations directly on the serialized form**. With Lite³, you can insert any arbitrary key, with any arbitrary value, directly into a serialized message. Essentially, it functions as a *serialized dictionary*.  
@@ -314,6 +314,7 @@ Output:
 }
 User agent: curl/8.1.2
 ```
+For a complete How-to Guide with examples, see [the documentation](https://lite3.io/how_to_guides.html).
 
 
 ## Getting Started
@@ -498,7 +499,7 @@ Over time, deleted entries cause the contiguous byte buffer to accumulate 'holes
 
 Also, Lite³ does not store raw pointers, but rather 32-bit indexes relative to the buffer pointer. The buffer pointer always points to the zero-index, and the root node is always stored at the zero-index.
 
-Despite being a binary format, Lite³ is schemaless and can be converted to/from JSON.
+Despite being a binary format, Lite³ is schemaless and can be converted to/from JSON. For a more complete explanation of the design, see [Design and Limitations](https://lite3.io/design_and_limitations.html).
 
 
 ## Other Serialization Formats
@@ -637,7 +638,7 @@ A: If you care about performance and can directly interface with C code, then go
 A: In terms of encode/decode performance, Lite³ outperforms Protobuf due to the zero-copy advantage. But Lite³ must encode field names to be self-describing, so messages take up more space over the wire. So choose Lite³ if you are CPU-constrained. Are you bandwidth constrained? Then choose Protocol Buffers and be prepared to accept extra tooling, IDL and ABI-breaking evolution to minimize message size.
 
 **Q: Can I use this in production?**  
-A: The format is developed for use in the field, though keep in mind this is a new project and the API is unstable. Also: understand the limitations. Experiment first and decide if it suits your needs.
+A: The format is developed for use in the field, though keep in mind this is a new project and the API is unstable. Also: understand [the limitations](https://lite3.io/design_and_limitations.html). Experiment first and decide if it suits your needs.
 
 **Q: Can I use this in embedded / ARM?**  
 A: Yes, but your platform should support the `int64_t` type, 8-byte doubles and a suitable C11 gcc/clang compiler,
