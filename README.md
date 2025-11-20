@@ -406,6 +406,7 @@ To run an example:
 ```
 ./build/examples/context_api/01-building-messages
 ```
+For learning how to use Lite³, it is recommended to follow the [How-to Guide series](https://lite3.io/how_to_guides.html).
 
 
 ## Lite³ Explained
