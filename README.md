@@ -36,7 +36,7 @@ Lite³ blurs the line between memory and wire formats, eliminating parsing and s
 - Predictable latency
 - No `malloc()` API, caller provides buffer
 - Library size 9.3 kB (core) and dependency-free
-- Fully written in gcc/clang C11
+- Written in C11 using GNU C syntax
 - Optional subdependency (yyjson) to support conversion to/from JSON
 - MIT license
 
