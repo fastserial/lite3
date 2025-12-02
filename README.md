@@ -9,11 +9,13 @@
 
 
 ## Introduction
-Lite³ is a JSON-compatible zero-copy serialization format encoding all data inside a B-tree, allowing **mutations directly on the serialized form**. Essentially, it functions as a *serialized dictionary* guaranteeing `O(log n)` access time to any internal field.
+Lite³ is a zero-copy binary serialization format encoding data as a B-tree inside a single contiguous buffer, allowing access and mutation on any arbitrary field in `O(log n)` time. Essentially, it functions as a *serialized dictionary*. 
 
 As a result, the serialization boundary has been broken: 'parsing' or 'serializing' in the traditional sense is no longer necessary. Lite³ structures can be read and mutated directly similar to hashmaps or binary trees, and since they exist in a single contiguous buffer, they always remain ready to send.
 
 Compared to other binary formats, Lite³ is schemaless, self-describing (no IDL or schema definitons required) and **supports conversion to/from JSON**, enabling compatibility with existing datasets/APIs and allowing for easy debugging/inspecting of messages.
+
+Thanks to the cache-friendly properties of the B-tree and the very minimalistic C implementation (9.3 kB), Lite³ outperforms the fastest JSON libraries (that make use of SIMD) by up to 120x depending on the benchmark. It also outperforms schema-only formats, such as Google Flatbuffers (242x). Lite³ is possibly the fastest schemaless data format in the world.
 
 Example to illustrate:
 1. A Lite³ message is received from a socket
@@ -23,7 +25,8 @@ Example to illustrate:
 3. After all operations are done, the structure can be transmitted 'as-is' (no serialization required, just `memcpy()`)
 4. The receiver then has access to all the same operations
 
-Lite³ blurs the line between memory and wire formats, eliminating parsing and serializing steps typically required in computer communications.
+Typically, in such a scenario a distinc 'serializing' and 'deserializing' step would be required.
+However Lite³ blurs the line between memory and wire formats, allowing direct access, traversal and mutation of a serialized buffer.
 
 
 ## Features
