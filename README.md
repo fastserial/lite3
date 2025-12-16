@@ -1,4 +1,4 @@
-# Lite³: A JSON-Compatible Zero-Copy Serialization Format
+# TRON (formerly known as Lite³): Tree Root Object Notation
 *Parse no more—the wire format is the memory format.*
 
 ![](img/lite3_landing_page.png)
@@ -299,7 +299,7 @@ For learning how to use Lite³, it is recommended to follow the [How-to Guide se
 [^4]: Protobuf can optionally send messages in 'ProtoJSON' format for debugging, but in production systems they are still sent as binary and not inspectable without schema. Other binary formats also support similar features, however we do not consider these formats 'human-readable' since they rely on out-of-band information.
 [^5]: Flexbuffer access to scalars and vectors is `O(1)` (ints, floats, etc.). For maps, access is `O(log n)`.
 
-Remember that we judge the behavior of formats by their implementation rather than by their official spec. This is because we cannot judge the behavior of hypothetical non-existant implementations.
+Remember that we judge the behavior of formats by their implementation rather than by their official spec. This is because we cannot judge the behavior of hypothetical non-existent implementations.
 
 
 ## Benchmarks
@@ -377,7 +377,7 @@ This conversion can be tricky for floating point numbers in particular.
 This benchmark is open source and can be replicated [here](https://github.com/fastserial/kostya-benchmark).
 
 ### Cpp Serialization Benchmark
-It is to be expected that binary formats will peform well compared to text formats.
+It is to be expected that binary formats will perform well compared to text formats.
 The comparison however is not entirely unwarranted.
 Pure binary formats present another category, typically requiring schema files and extra tooling.
 They are chosen by those who value performance over other considerations.

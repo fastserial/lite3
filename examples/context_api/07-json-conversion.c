@@ -1,5 +1,5 @@
 /*
-    Lite³: A JSON-Compatible Zero-Copy Serialization Format
+    TRON (formerly known as Lite³): Tree Root Object Notation
 
     Copyright © 2025 Elias de Jong <elias@fastserial.com>
 
