@@ -1,5 +1,5 @@
 /*
-    TRON (formerly known as Lite³): Tree Root Object Notation
+    Lite³: A JSON-Compatible Zero-Copy Serialization Format
 
     Copyright © 2025 Elias de Jong <elias@fastserial.com>
 
@@ -116,7 +116,8 @@ static_assert(sizeof(((struct node *)0)->gen_type) == sizeof(((lite3_iter *)0)->
 /*
         Verify a key inside the buffer to ensure readers don't go out of bounds.
                 Optionally compare the existing key to an input key; a mismatch implies a hash collision.
-                - Returns 0 on success
+                - Returns LITE3_VERIFY_KEY_OK (== 0) on success
+                - Returns LITE3_VERIFY_KEY_HASH_COLLISION (== 1) on probe hash collision (caller must retry with different hash)
                 - Returns < 0 on failure
         
         [ NOTE ] For internal use only.
@@ -161,14 +162,13 @@ static inline int _verify_key(
 		);
 		if (LITE3_UNLIKELY(cmp != 0)) {
 			LITE3_PRINT_ERROR("HASH COLLISION\n");
-			errno = EINVAL;
-			return -1;
+			return LITE3_VERIFY_KEY_HASH_COLLISION;
 		}
 	}
 	*inout_ofs += _key_size;
 	if (out_key_tag_size)
 		*out_key_tag_size = _key_tag_size;
-	return 0;
+	return LITE3_VERIFY_KEY_OK;
 }
 
 /*
@@ -238,57 +238,75 @@ int lite3_get_impl(
 					+ !!(key_data.size >> (8 - LITE3_KEY_TAG_KEY_SIZE_SHIFT))
 					+ !!key_data.size);
 
-	struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
+	uint32_t probe_attempts = key ? LITE3_HASH_PROBE_MAX : 1U;
+	for (uint32_t attempt = 0; attempt < probe_attempts; attempt++) {
+		
+		lite3_key_data attempt_key = key_data;
+		attempt_key.hash = key_data.hash + attempt * attempt;
+		#ifdef LITE3_DEBUG
+			LITE3_PRINT_DEBUG("probe attempt: %u\thash: %u\n", attempt, attempt_key.hash);
+		#endif
 
-	if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-		LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-		errno = EBADMSG;
-		return -1;
-	}
+		struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
 
-	int key_count;
-	int i;
-	int node_walks = 0;
-	while (1) {
-		key_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
-		i = 0;
-		while (i < key_count && node->hashes[i] < key_data.hash)
-			i++;
-		if (i < key_count && node->hashes[i] == key_data.hash) {		// target key found
-			size_t target_ofs = node->kv_ofs[i];
-			if (key && _verify_key(buf, buflen, key, (size_t)key_data.size, key_tag_size, &target_ofs, NULL) < 0)
-				return -1;
-			size_t val_start_ofs = target_ofs;
-			if (_verify_val(buf, buflen, &target_ofs) < 0)
-				return -1;
-			*out = (lite3_val *)(buf + val_start_ofs);
-			return 0;
-		}
-		if (node->child_ofs[0]) {						// if children, walk to next node
-			size_t next_node_ofs = (size_t)node->child_ofs[i];
-			node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
-
-			if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-				LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-				errno = EBADMSG;
-				return -1;
-			}
-			if (LITE3_UNLIKELY(next_node_ofs > buflen - LITE3_NODE_SIZE)) {
-				LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
-				errno = EFAULT;
-				return -1;
-			}
-			if (LITE3_UNLIKELY(++node_walks > LITE3_TREE_HEIGHT_MAX)) {
-				LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
-				errno = EBADMSG;
-				return -1;
-			}
-		} else {
-			LITE3_PRINT_ERROR("KEY NOT FOUND\n");
-			errno = ENOENT;
+		if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+			LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
+			errno = EBADMSG;
 			return -1;
 		}
+
+		int key_count;
+		int i;
+		int node_walks = 0;
+		while (1) {
+			key_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
+			i = 0;
+			while (i < key_count && node->hashes[i] < attempt_key.hash)
+				i++;
+			if (i < key_count && node->hashes[i] == attempt_key.hash) {		// target key found
+				size_t target_ofs = node->kv_ofs[i];
+				if (key) {
+					int verify = _verify_key(buf, buflen, key, (size_t)attempt_key.size, key_tag_size, &target_ofs, NULL);
+					if (verify == LITE3_VERIFY_KEY_HASH_COLLISION)
+						break; // try next probe
+					if (verify < 0)
+						return -1;
+				}
+				size_t val_start_ofs = target_ofs;
+				if (_verify_val(buf, buflen, &target_ofs) < 0)
+					return -1;
+				*out = (lite3_val *)(buf + val_start_ofs);
+				return 0;
+			}
+			if (node->child_ofs[0]) {						// if children, walk to next node
+				size_t next_node_ofs = (size_t)node->child_ofs[i];
+				node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
+
+				if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+					LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
+					errno = EBADMSG;
+					return -1;
+				}
+				if (LITE3_UNLIKELY(next_node_ofs > buflen - LITE3_NODE_SIZE)) {
+					LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
+					errno = EFAULT;
+					return -1;
+				}
+				if (LITE3_UNLIKELY(++node_walks > LITE3_TREE_HEIGHT_MAX)) {
+					LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
+					errno = EBADMSG;
+					return -1;
+				}
+			} else {
+				LITE3_PRINT_ERROR("KEY NOT FOUND\n");
+				errno = ENOENT;
+				return -1;
+			}
+		}
 	}
+	LITE3_PRINT_ERROR("LITE3_HASH_PROBE_MAX LIMIT REACHED\n");
+	errno = EINVAL;
+	return -1;
 }
 
 int lite3_iter_create_impl(const unsigned char *buf, size_t buflen, size_t ofs, lite3_iter *out)
@@ -515,137 +533,211 @@ int lite3_set_impl(
 		LITE3_PRINT_DEBUG("SET INVALID: EXEPCTING ARRAY OR OBJECT TYPE\n");
 	}
 	#endif
+
 	size_t key_tag_size = (size_t)((!!(key_data.size >> (16 - LITE3_KEY_TAG_KEY_SIZE_SHIFT)) << 1)
 					+ !!(key_data.size >> (8 - LITE3_KEY_TAG_KEY_SIZE_SHIFT))
 					+ !!key_data.size);
-	size_t entry_size = key_tag_size + (size_t)key_data.size + LITE3_VAL_SIZE + val_len;
+	size_t base_entry_size = key_tag_size + (size_t)key_data.size + LITE3_VAL_SIZE + val_len;
 
-	struct node *restrict parent = NULL;
-	struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
+	struct node *restrict root = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
 	
-	if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+	if (LITE3_UNLIKELY(((uintptr_t)root & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
 		LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 		errno = EBADMSG;
 		return -1;
 	}
 
-	u32 gen = node->gen_type >> LITE3_NODE_GEN_SHIFT;
+	u32 gen = root->gen_type >> LITE3_NODE_GEN_SHIFT;
 	++gen;
-	node->gen_type = (node->gen_type & ~LITE3_NODE_GEN_MASK) | (gen << LITE3_NODE_GEN_SHIFT);
+	root->gen_type = (root->gen_type & ~LITE3_NODE_GEN_MASK) | (gen << LITE3_NODE_GEN_SHIFT);
 	
-	int key_count;
-	int i;
-	int node_walks = 0;
-	while (1) {
-		if ((node->size_kc & LITE3_NODE_KEY_COUNT_MASK) == LITE3_NODE_KEY_COUNT_MAX) {	// node full, need to split
+	uint32_t probe_attempts = key ? LITE3_HASH_PROBE_MAX : 1U;
+	for (uint32_t attempt = 0; attempt < probe_attempts; attempt++) {
+		
+		lite3_key_data attempt_key = key_data;
+		attempt_key.hash = key_data.hash + attempt * attempt;
+		#ifdef LITE3_DEBUG
+			LITE3_PRINT_DEBUG("probe attempt: %u\thash: %u\n", attempt, attempt_key.hash);
+		#endif
 
-			size_t buflen_aligned = (*inout_buflen + LITE3_NODE_ALIGNMENT_MASK) & ~(size_t)LITE3_NODE_ALIGNMENT_MASK; // next multiple of LITE3_NODE_ALIGNMENT
-			size_t new_node_size = parent ? LITE3_NODE_SIZE : 2 * LITE3_NODE_SIZE;
+		size_t entry_size = base_entry_size;
+		struct node *restrict parent = NULL;
+		struct node *restrict node = root;
 
-			if (LITE3_UNLIKELY(new_node_size > bufsz || buflen_aligned > bufsz - new_node_size)) {
-				LITE3_PRINT_ERROR("NO BUFFER SPACE FOR NODE SPLIT\n");
-				errno = ENOBUFS;
-				return -1;
-			}
-			*inout_buflen = buflen_aligned;
-			// TODO: add lost bytes from alignment to GC index
-			if (!parent) {								// if root split, create new root
-				LITE3_PRINT_DEBUG("NEW ROOT\n");
-				memcpy(buf + *inout_buflen, node, LITE3_NODE_SIZE);
-				node = __builtin_assume_aligned((struct node *)(buf + *inout_buflen), LITE3_NODE_ALIGNMENT);
-				
-				if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-					LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-					errno = EBADMSG;
+		int key_count;
+		int i;
+		int node_walks = 0;
+
+		while (1) {
+			if ((node->size_kc & LITE3_NODE_KEY_COUNT_MASK) == LITE3_NODE_KEY_COUNT_MAX) {	// node full, need to split
+
+				size_t buflen_aligned = (*inout_buflen + LITE3_NODE_ALIGNMENT_MASK) & ~(size_t)LITE3_NODE_ALIGNMENT_MASK; // next multiple of LITE3_NODE_ALIGNMENT
+				size_t new_node_size = parent ? LITE3_NODE_SIZE : 2 * LITE3_NODE_SIZE;
+
+				if (LITE3_UNLIKELY(new_node_size > bufsz || buflen_aligned > bufsz - new_node_size)) {
+					LITE3_PRINT_ERROR("NO BUFFER SPACE FOR NODE SPLIT\n");
+					errno = ENOBUFS;
 					return -1;
 				}
-				parent = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
+				*inout_buflen = buflen_aligned;
+				// TODO: add lost bytes from alignment to GC index
+				if (!parent) {								// if root split, create new root
+					LITE3_PRINT_DEBUG("NEW ROOT\n");
+					memcpy(buf + *inout_buflen, node, LITE3_NODE_SIZE);
+					node = __builtin_assume_aligned((struct node *)(buf + *inout_buflen), LITE3_NODE_ALIGNMENT);
+					
+					if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+						LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
+						errno = EBADMSG;
+						return -1;
+					}
+					parent = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
+					
+					if (LITE3_UNLIKELY(((uintptr_t)parent & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+						LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
+						errno = EBADMSG;
+						return -1;
+					}
+					#ifdef LITE3_ZERO_MEM_EXTRA
+						memset(parent->hashes, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->hashes));
+						memset(parent->kv_ofs, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->kv_ofs));
+						memset(parent->child_ofs, 0x00,          sizeof(((struct node *)0)->child_ofs));
+					#endif
+					parent->size_kc &= ~LITE3_NODE_KEY_COUNT_MASK;			// set key_count to 0
+					parent->child_ofs[0] = (u32)*inout_buflen;			// insert node as child of new root
+					*inout_buflen += LITE3_NODE_SIZE;
+					key_count = 0;
+					i = 0;
+				}
+				LITE3_PRINT_DEBUG("SPLIT NODE\n");
+				for (int j = key_count; j > i; j--) {					// shift parent array before separator insert
+					parent->hashes[j] =        parent->hashes[j - 1];
+					parent->kv_ofs[j] =        parent->kv_ofs[j - 1];
+					parent->child_ofs[j + 1] = parent->child_ofs[j];
+				}
+				parent->hashes[i] = node->hashes[LITE3_NODE_KEY_COUNT_MIN];		// insert new separator key in parent
+				parent->kv_ofs[i] = node->kv_ofs[LITE3_NODE_KEY_COUNT_MIN];
+				parent->child_ofs[i + 1] = (u32)*inout_buflen;				// insert sibling as child in parent
+				parent->size_kc = (parent->size_kc & ~LITE3_NODE_KEY_COUNT_MASK)
+				                    | ((parent->size_kc + 1) & LITE3_NODE_KEY_COUNT_MASK); // key_count++
+				#ifdef LITE3_ZERO_MEM_EXTRA
+					node->hashes[LITE3_NODE_KEY_COUNT_MIN] = LITE3_ZERO_MEM_32;
+					node->kv_ofs[LITE3_NODE_KEY_COUNT_MIN] = LITE3_ZERO_MEM_32;
+				#endif
+				struct node *restrict sibling = __builtin_assume_aligned((struct node *)(buf + *inout_buflen), LITE3_NODE_ALIGNMENT);
 				
-				if (LITE3_UNLIKELY(((uintptr_t)parent & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+				if (LITE3_UNLIKELY(((uintptr_t)sibling & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
 					LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 					errno = EBADMSG;
 					return -1;
 				}
 				#ifdef LITE3_ZERO_MEM_EXTRA
-					memset(parent->hashes, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->hashes));
-					memset(parent->kv_ofs, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->kv_ofs));
-					memset(parent->child_ofs, 0x00,          sizeof(((struct node *)0)->child_ofs));
+					memset(sibling->hashes, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->hashes));
+					memset(sibling->kv_ofs, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->kv_ofs));
 				#endif
-				parent->size_kc &= ~LITE3_NODE_KEY_COUNT_MASK;			// set key_count to 0
-				parent->child_ofs[0] = (u32)*inout_buflen;			// insert node as child of new root
+				sibling->gen_type = ((struct node *)(buf + ofs))->gen_type & LITE3_NODE_TYPE_MASK;
+				sibling->size_kc = 	LITE3_NODE_KEY_COUNT_MIN & LITE3_NODE_KEY_COUNT_MASK;
+				node->size_kc = 	LITE3_NODE_KEY_COUNT_MIN & LITE3_NODE_KEY_COUNT_MASK;
+				memset(sibling->child_ofs, 0x00, sizeof(((struct node *)0)->child_ofs));
+				sibling->child_ofs[0] = node->child_ofs[LITE3_NODE_KEY_COUNT_MIN + 1];	// take child from node
+				                        node->child_ofs[LITE3_NODE_KEY_COUNT_MIN + 1] = 0x00;
+				for (int j = 0; j < LITE3_NODE_KEY_COUNT_MIN; j++) {			// copy half of node's keys to sibling
+					sibling->hashes[j] =        node->hashes[j + LITE3_NODE_KEY_COUNT_MIN + 1];
+					sibling->kv_ofs[j] =        node->kv_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 1];
+					sibling->child_ofs[j + 1] = node->child_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 2];
+					#ifdef LITE3_ZERO_MEM_EXTRA
+						node->hashes[j + LITE3_NODE_KEY_COUNT_MIN + 1] =    LITE3_ZERO_MEM_32;
+						node->kv_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 1] =    LITE3_ZERO_MEM_32;
+						node->child_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 2] = 0x00000000;
+					#endif
+				}
 				*inout_buflen += LITE3_NODE_SIZE;
-				key_count = 0;
-				i = 0;
+				if (attempt_key.hash > parent->hashes[i]) {				// sibling has target key? then we follow
+					node = __builtin_assume_aligned(sibling, LITE3_NODE_ALIGNMENT);
+					
+					if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+						LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
+						errno = EBADMSG;
+						return -1;
+					}
+				} else if (attempt_key.hash == parent->hashes[i]) {
+					node = __builtin_assume_aligned(parent, LITE3_NODE_ALIGNMENT);
+					LITE3_PRINT_DEBUG("GOTO SKIP\n");
+					goto key_match_skip;
+				}
 			}
-			LITE3_PRINT_DEBUG("SPLIT NODE\n");
-			for (int j = key_count; j > i; j--) {					// shift parent array before separator insert
-				parent->hashes[j] =        parent->hashes[j - 1];
-				parent->kv_ofs[j] =        parent->kv_ofs[j - 1];
-				parent->child_ofs[j + 1] = parent->child_ofs[j];
-			}
-			parent->hashes[i] = node->hashes[LITE3_NODE_KEY_COUNT_MIN];		// insert new separator key in parent
-			parent->kv_ofs[i] = node->kv_ofs[LITE3_NODE_KEY_COUNT_MIN];
-			parent->child_ofs[i + 1] = (u32)*inout_buflen;				// insert sibling as child in parent
-			parent->size_kc = (parent->size_kc & ~LITE3_NODE_KEY_COUNT_MASK)
-			                    | ((parent->size_kc + 1) & LITE3_NODE_KEY_COUNT_MASK); // key_count++
-			#ifdef LITE3_ZERO_MEM_EXTRA
-				node->hashes[LITE3_NODE_KEY_COUNT_MIN] = LITE3_ZERO_MEM_32;
-				node->kv_ofs[LITE3_NODE_KEY_COUNT_MIN] = LITE3_ZERO_MEM_32;
-			#endif
-			struct node *restrict sibling = __builtin_assume_aligned((struct node *)(buf + *inout_buflen), LITE3_NODE_ALIGNMENT);
+
+			key_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
+			i = 0;
+			while (i < key_count && node->hashes[i] < attempt_key.hash)
+				i++;
 			
-			if (LITE3_UNLIKELY(((uintptr_t)sibling & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-				LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-				errno = EBADMSG;
-				return -1;
-			}
-			#ifdef LITE3_ZERO_MEM_EXTRA
-				memset(sibling->hashes, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->hashes));
-				memset(sibling->kv_ofs, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->kv_ofs));
-			#endif
-			sibling->gen_type = ((struct node *)(buf + ofs))->gen_type & LITE3_NODE_TYPE_MASK;
-			sibling->size_kc = 	LITE3_NODE_KEY_COUNT_MIN & LITE3_NODE_KEY_COUNT_MASK;
-			node->size_kc = 	LITE3_NODE_KEY_COUNT_MIN & LITE3_NODE_KEY_COUNT_MASK;
-			memset(sibling->child_ofs, 0x00, sizeof(((struct node *)0)->child_ofs));
-			sibling->child_ofs[0] = node->child_ofs[LITE3_NODE_KEY_COUNT_MIN + 1];	// take child from node
-			                        node->child_ofs[LITE3_NODE_KEY_COUNT_MIN + 1] = 0x00;
-			for (int j = 0; j < LITE3_NODE_KEY_COUNT_MIN; j++) {			// copy half of node's keys to sibling
-				sibling->hashes[j] =        node->hashes[j + LITE3_NODE_KEY_COUNT_MIN + 1];
-				sibling->kv_ofs[j] =        node->kv_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 1];
-				sibling->child_ofs[j + 1] = node->child_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 2];
-				#ifdef LITE3_ZERO_MEM_EXTRA
-					node->hashes[j + LITE3_NODE_KEY_COUNT_MIN + 1] =    LITE3_ZERO_MEM_32;
-					node->kv_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 1] =    LITE3_ZERO_MEM_32;
-					node->child_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 2] = 0x00000000;
+			LITE3_PRINT_DEBUG("i: %i\tkc: %i\tnode->hashes[i]: %u\n", i, key_count, node->hashes[i]);
+
+			if (i < key_count && node->hashes[i] == attempt_key.hash) {			// matching key found, already exists?
+key_match_skip:
+				size_t target_ofs = node->kv_ofs[i];
+				size_t key_start_ofs = target_ofs;
+				if (key) {
+					int verify = _verify_key(buf, *inout_buflen, key, (size_t)attempt_key.size, key_tag_size, &target_ofs, NULL);
+					if (verify == LITE3_VERIFY_KEY_HASH_COLLISION)
+						break; // try next probe
+					if (verify < 0)
+						return -1;
+				}
+				size_t val_start_ofs = target_ofs;
+				if (_verify_val(buf, *inout_buflen, &target_ofs) < 0)
+					return -1;
+				if (val_len >= target_ofs - val_start_ofs) {				// value is too large, we must append
+					size_t alignment_mask = val_len == lite3_type_sizes[LITE3_TYPE_OBJECT] ? (size_t)LITE3_NODE_ALIGNMENT_MASK : 0;
+					size_t unaligned_val_ofs = *inout_buflen + key_tag_size + (size_t)attempt_key.size;
+					size_t alignment_padding = ((unaligned_val_ofs + alignment_mask) & ~alignment_mask) - unaligned_val_ofs;
+					entry_size += alignment_padding;
+					if (LITE3_UNLIKELY(entry_size > bufsz || *inout_buflen > bufsz - entry_size)) {
+						LITE3_PRINT_ERROR("NO BUFFER SPACE FOR ENTRY INSERTION\n");
+						errno = ENOBUFS;
+						return -1;
+					}
+					#ifdef LITE3_ZERO_MEM_DELETED
+						memset(buf + node->kv_ofs[i], LITE3_ZERO_MEM_8, target_ofs - key_start_ofs); // zero out key + value
+					#endif
+					(void)key_start_ofs;						// silence unused variable warning
+					*inout_buflen += alignment_padding;
+					node->kv_ofs[i] = (u32)*inout_buflen;
+					goto insert_append;
+					// TODO: add lost bytes to GC index
+				}
+				#ifdef LITE3_ZERO_MEM_DELETED
+					memset(buf + val_start_ofs, LITE3_ZERO_MEM_8, target_ofs - val_start_ofs); // zero out value
 				#endif
+				*out = (lite3_val *)(buf + val_start_ofs);				// caller overwrites value in place
+				// TODO: add lost bytes to GC index
+				return 0;
 			}
-			if (key_data.hash > parent->hashes[i]) {				// sibling has target key? then we follow
-				node = __builtin_assume_aligned(sibling, LITE3_NODE_ALIGNMENT);
+			if (node->child_ofs[0]) {							// if children, walk to next node
+				size_t next_node_ofs = (size_t)node->child_ofs[i];
+
+				parent = __builtin_assume_aligned(node, LITE3_NODE_ALIGNMENT);
+				node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
 				
 				if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
 					LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 					errno = EBADMSG;
 					return -1;
 				}
-			}
-			*inout_buflen += LITE3_NODE_SIZE;
-		}
-
-		key_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
-		i = 0;
-		while (i < key_count && node->hashes[i] < key_data.hash)
-			i++;
-		if (i < key_count && node->hashes[i] == key_data.hash) {			// matching key found, already exists?
-			size_t target_ofs = node->kv_ofs[i];
-			size_t key_start_ofs = target_ofs;
-			if (key && _verify_key(buf, *inout_buflen, key, (size_t)key_data.size, key_tag_size, &target_ofs, NULL) < 0)
-				return -1;
-			size_t val_start_ofs = target_ofs;
-			if (_verify_val(buf, *inout_buflen, &target_ofs) < 0)
-				return -1;
-			if (val_len >= target_ofs - val_start_ofs) {				// value is too large, we must append
+				if (LITE3_UNLIKELY(next_node_ofs > *inout_buflen - LITE3_NODE_SIZE)) {
+					LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
+					errno = EFAULT;
+					return -1;
+				}
+				if (LITE3_UNLIKELY(++node_walks > LITE3_TREE_HEIGHT_MAX)) {
+					LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
+					errno = EBADMSG;
+					return -1;
+				}
+			} else {									// insert the kv-pair
 				size_t alignment_mask = val_len == lite3_type_sizes[LITE3_TYPE_OBJECT] ? (size_t)LITE3_NODE_ALIGNMENT_MASK : 0;
-				size_t unaligned_val_ofs = *inout_buflen + key_tag_size + (size_t)key_data.size;
+				size_t unaligned_val_ofs = *inout_buflen + key_tag_size + (size_t)attempt_key.size;
 				size_t alignment_padding = ((unaligned_val_ofs + alignment_mask) & ~alignment_mask) - unaligned_val_ofs;
 				entry_size += alignment_padding;
 				if (LITE3_UNLIKELY(entry_size > bufsz || *inout_buflen > bufsz - entry_size)) {
@@ -653,81 +745,41 @@ int lite3_set_impl(
 					errno = ENOBUFS;
 					return -1;
 				}
-				#ifdef LITE3_ZERO_MEM_DELETED
-					memset(buf + node->kv_ofs[i], LITE3_ZERO_MEM_8, target_ofs - key_start_ofs); // zero out key + value
-				#endif
-				(void)key_start_ofs;						// silence unused variable warning
+				for (int j = key_count; j > i; j--) {
+					node->hashes[j] = node->hashes[j - 1];
+					node->kv_ofs[j] = node->kv_ofs[j - 1];
+				}
+				LITE3_PRINT_DEBUG("INSERTING HASH: %u\ti: %i\n", attempt_key.hash, i);
+				node->hashes[i] = attempt_key.hash;
+				node->size_kc = (node->size_kc & ~LITE3_NODE_KEY_COUNT_MASK)
+				                  | ((node->size_kc + 1) & LITE3_NODE_KEY_COUNT_MASK);	// key_count++
 				*inout_buflen += alignment_padding;
 				node->kv_ofs[i] = (u32)*inout_buflen;
+
+				root = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT); // set node to root
+				u32 size = root->size_kc >> LITE3_NODE_SIZE_SHIFT;
+				++size;
+				root->size_kc = (root->size_kc & ~LITE3_NODE_SIZE_MASK) | (size << LITE3_NODE_SIZE_SHIFT); // node size++
 				goto insert_append;
-				// TODO: add lost bytes to GC index
 			}
-			#ifdef LITE3_ZERO_MEM_DELETED
-				memset(buf + val_start_ofs, LITE3_ZERO_MEM_8, target_ofs - val_start_ofs); // zero out value
-			#endif
-			*out = (lite3_val *)(buf + val_start_ofs);				// caller overwrites value in place
-			// TODO: add lost bytes to GC index
-			return 0;
 		}
-		if (node->child_ofs[0]) {							// if children, walk to next node
-			size_t next_node_ofs = (size_t)node->child_ofs[i];
-
-			parent = __builtin_assume_aligned(node, LITE3_NODE_ALIGNMENT);
-			node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
-			
-			if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-				LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-				errno = EBADMSG;
-				return -1;
-			}
-			if (LITE3_UNLIKELY(next_node_ofs > *inout_buflen - LITE3_NODE_SIZE)) {
-				LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
-				errno = EFAULT;
-				return -1;
-			}
-			if (LITE3_UNLIKELY(++node_walks > LITE3_TREE_HEIGHT_MAX)) {
-				LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
-				errno = EBADMSG;
-				return -1;
-			}
-		} else {									// insert the kv-pair
-			size_t alignment_mask = val_len == lite3_type_sizes[LITE3_TYPE_OBJECT] ? (size_t)LITE3_NODE_ALIGNMENT_MASK : 0;
-			size_t unaligned_val_ofs = *inout_buflen + key_tag_size + (size_t)key_data.size;
-			size_t alignment_padding = ((unaligned_val_ofs + alignment_mask) & ~alignment_mask) - unaligned_val_ofs;
-			entry_size += alignment_padding;
-			if (LITE3_UNLIKELY(entry_size > bufsz || *inout_buflen > bufsz - entry_size)) {
-				LITE3_PRINT_ERROR("NO BUFFER SPACE FOR ENTRY INSERTION\n");
-				errno = ENOBUFS;
-				return -1;
-			}
-			for (int j = key_count; j > i; j--) {
-				node->hashes[j] = node->hashes[j - 1];
-				node->kv_ofs[j] = node->kv_ofs[j - 1];
-			}
-			node->hashes[i] = key_data.hash;
-			node->size_kc = (node->size_kc & ~LITE3_NODE_KEY_COUNT_MASK)
-			                  | ((node->size_kc + 1) & LITE3_NODE_KEY_COUNT_MASK);	// key_count++
-			*inout_buflen += alignment_padding;
-			node->kv_ofs[i] = (u32)*inout_buflen;
-
-			node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT); // set node to root
-			u32 size = node->size_kc >> LITE3_NODE_SIZE_SHIFT;
-			++size;
-			node->size_kc = (node->size_kc & ~LITE3_NODE_SIZE_MASK) | (size << LITE3_NODE_SIZE_SHIFT); // node size++
-			goto insert_append;
-		}
-	}
+		continue;
 insert_append:
-	if (key) {
-		size_t key_size_tmp = (key_data.size << LITE3_KEY_TAG_KEY_SIZE_SHIFT) | (key_tag_size - 1);
-		memcpy(buf + *inout_buflen, &key_size_tmp, key_tag_size);
-		*inout_buflen += key_tag_size;
-		memcpy(buf + *inout_buflen, key, (size_t)key_data.size);
-		*inout_buflen += (size_t)key_data.size;
+		if (key) {
+			size_t key_size_tmp = (attempt_key.size << LITE3_KEY_TAG_KEY_SIZE_SHIFT) | (key_tag_size - 1);
+			memcpy(buf + *inout_buflen, &key_size_tmp, key_tag_size);
+			*inout_buflen += key_tag_size;
+			memcpy(buf + *inout_buflen, key, (size_t)attempt_key.size);
+			*inout_buflen += (size_t)attempt_key.size;
+		}
+		*out = (lite3_val *)(buf + *inout_buflen);
+		*inout_buflen += LITE3_VAL_SIZE + val_len;
+		LITE3_PRINT_DEBUG("OK\n");
+		return 0;
 	}
-	*out = (lite3_val *)(buf + *inout_buflen);
-	*inout_buflen += LITE3_VAL_SIZE + val_len;
-	return 0;
+	LITE3_PRINT_ERROR("LITE3_HASH_PROBE_MAX LIMIT REACHED\n");
+	errno = EINVAL;
+	return -1;
 }
 
 int lite3_set_obj_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, const char *restrict key, lite3_key_data key_data, size_t *restrict out_ofs)
