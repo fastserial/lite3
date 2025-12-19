@@ -43,6 +43,18 @@
 int _lite3_json_dec_obj(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, size_t nesting_depth, yyjson_doc *doc, yyjson_val *obj);
 int _lite3_json_dec_arr(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, size_t nesting_depth, yyjson_doc *doc, yyjson_val *arr);
 
+static inline enum lite3_node_cfg_id _lite3_cfg_for_obj(yyjson_val *obj)
+{
+        size_t key_count = yyjson_obj_size(obj);
+        return lite3_node_cfg_best_for_keys(key_count);
+}
+
+static inline enum lite3_node_cfg_id _lite3_cfg_for_arr(yyjson_val *arr)
+{
+        size_t key_count = yyjson_arr_size(arr);
+        return lite3_node_cfg_best_for_keys(key_count);
+}
+
 int _lite3_json_dec_obj_switch(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, size_t nesting_depth, yyjson_doc *doc, yyjson_val *yy_key, yyjson_val *yy_val)
 {
         const char *key = yyjson_get_str(yy_key);
@@ -106,14 +118,14 @@ int _lite3_json_dec_obj_switch(unsigned char *buf, size_t *restrict inout_buflen
                 break;
         case YYJSON_TYPE_OBJ:
                 size_t obj_ofs;
-                if ((ret = lite3_set_obj(buf, inout_buflen, ofs, bufsz, key, &obj_ofs)) < 0)
+                if ((ret = lite3_set_obj_cfg_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), _lite3_cfg_for_obj(yy_val), &obj_ofs)) < 0)
                         return ret;
                 if ((ret = _lite3_json_dec_obj(buf, inout_buflen, obj_ofs, bufsz, nesting_depth, doc, yy_val)) < 0)
                         return ret;
                 break;
         case YYJSON_TYPE_ARR:
                 size_t arr_ofs;
-                if ((ret = lite3_set_arr(buf, inout_buflen, ofs, bufsz, key, &arr_ofs)) < 0)
+                if ((ret = lite3_set_arr_cfg_impl(buf, inout_buflen, ofs, bufsz, key, lite3_get_key_data(key), _lite3_cfg_for_arr(yy_val), &arr_ofs)) < 0)
                         return ret;
                 if ((ret = _lite3_json_dec_arr(buf, inout_buflen, arr_ofs, bufsz, nesting_depth, doc, yy_val)) < 0)
                         return ret;
@@ -188,14 +200,14 @@ int _lite3_json_dec_arr_switch(unsigned char *buf, size_t *restrict inout_buflen
                 break;
         case YYJSON_TYPE_OBJ:
                 size_t obj_ofs;
-                if ((ret = lite3_arr_append_obj(buf, inout_buflen, ofs, bufsz, &obj_ofs)) < 0)
+                if ((ret = lite3_arr_append_obj_cfg_impl(buf, inout_buflen, ofs, bufsz, _lite3_cfg_for_obj(yy_val), &obj_ofs)) < 0)
                         return ret;
                 if ((ret = _lite3_json_dec_obj(buf, inout_buflen, obj_ofs, bufsz, nesting_depth, doc, yy_val)) < 0)
                         return ret;
                 break;
         case YYJSON_TYPE_ARR:
                 size_t arr_ofs;
-                if ((ret = lite3_arr_append_arr(buf, inout_buflen, ofs, bufsz, &arr_ofs)) < 0)
+                if ((ret = lite3_arr_append_arr_cfg_impl(buf, inout_buflen, ofs, bufsz, _lite3_cfg_for_arr(yy_val), &arr_ofs)) < 0)
                         return ret;
                 if ((ret = _lite3_json_dec_arr(buf, inout_buflen, arr_ofs, bufsz, nesting_depth, doc, yy_val)) < 0)
                         return ret;
@@ -249,13 +261,13 @@ int _lite3_json_dec_doc(unsigned char *buf, size_t *restrict out_buflen, size_t 
         int ret = 0;
         switch (yyjson_get_type(root_val)) {
         case YYJSON_TYPE_OBJ:
-                if ((ret = lite3_init_obj(buf, out_buflen, bufsz)) < 0)
+                if ((ret = lite3_init_obj_cfg(buf, out_buflen, bufsz, _lite3_cfg_for_obj(root_val))) < 0)
                         goto error;
                 if ((ret = _lite3_json_dec_obj(buf, out_buflen, 0, bufsz, 0, doc, root_val)) < 0)
                         goto error;
                 break;
         case YYJSON_TYPE_ARR:
-                if ((ret = lite3_init_arr(buf, out_buflen, bufsz)) < 0)
+                if ((ret = lite3_init_arr_cfg(buf, out_buflen, bufsz, _lite3_cfg_for_arr(root_val))) < 0)
                         goto error;
                 if ((ret = _lite3_json_dec_arr(buf, out_buflen, 0, bufsz, 0, doc, root_val)) < 0)
                         goto error;

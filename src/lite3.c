@@ -53,58 +53,97 @@ typedef uint64_t    u64;
 
 
 /*
-        B-tree node struct
-                Advanced users can adjust the B-tree node size to experiment with different performance characteristics.
-                Larger node sizes will bloat message size, but also reduce the tree height, thus also reducing node walks.
-                Actual effects are dependent on the architecture and workload. To be sure, experiment with different settings and profile.
-
-                IMPORTANT RULES TO OBEY:
-                - hashes[] and kv_ofs[] should always have an element count exactly equal to LITE3_NODE_KEY_COUNT_MASK
-                - hashes[] and kv_ofs[] should always have an uneven element count
-                - hashes[] and kv_ofs[] should always have equal element count
-                - child_ofs[] should always have element count of exactly 1 greater than hashes[] and kv_ofs[]
-
-        How to change:
-                1) uncomment `LITE3_NODE_KEY_COUNT_MASK` to the preferred setting
-                2) adjust the member array sizes inside the `struct node` definition
-                3) uncomment `LITE3_NODE_SIZE` to the correct size inside the header
-                4) uncomment LITE3_NODE_SIZE_KC_OFFSET` to the correct size inside the header
-                5) uncomment `LITE3_TREE_HEIGHT_MAX` to the correct value inside the header
-        
-        [ WARNING ] If you change this setting, everyone you communicate with must also change it.
-                    Unless you control all communicating parties, you probably should not touch this.
+        B-tree node layout helpers.
+        Nodes store their configuration id in gen_type (see lite3.h). Arrays are computed from the selected layout.
 */
 struct node {
-        u32	gen_type;       // upper 24 bits: gen           lower 8 bits: lite3_type
-        u32	hashes[7];
-        u32	size_kc;        // upper 26 bits: size          lower 6 bits: key_count
-        u32	kv_ofs[7];
-        u32	child_ofs[8];
+        u32	gen_type;       // upper bits: generation       lower bits: type + cfg id
 };
-static_assert(sizeof(struct node) == LITE3_NODE_SIZE, "sizeof(struct node) must equal LITE3_NODE_SIZE");
 static_assert(offsetof(struct node, gen_type) == 0, "Runtime type checks and LITE3_BYTES() & LITE3_STR() macros expect to read (struct node).gen_type field at offset 0");
 static_assert(sizeof(((struct node *)0)->gen_type) == sizeof(uint32_t), "LITE3_BYTES() & LITE3_STR() macros expect to read (struct node).gen_type as uint32_t");
-static_assert(offsetof(struct node, size_kc) == LITE3_NODE_SIZE_KC_OFFSET, "Offset of (struct node).size_kc must equal LITE3_NODE_SIZE_KC_OFFSET");
-static_assert(sizeof(((struct node *)0)->size_kc) == sizeof(uint32_t), "Node size checks expect to read (struct node).size_kc as uint32_t");
 static_assert(sizeof(((struct node *)0)->gen_type) == sizeof(((lite3_iter *)0)->gen), "Iterator expects to read (struct node).gen_type as uint32_t");
 
-#define LITE3_NODE_TYPE_SHIFT 0
-#define LITE3_NODE_TYPE_MASK ((u32)((1 << 8) - 1))  // 8 LSB
+static inline bool _lite3_node_aligned(const void *ptr) {
+        return (((uintptr_t)ptr & LITE3_NODE_ALIGNMENT_MASK) == 0);
+}
 
-#define LITE3_NODE_GEN_SHIFT  8
-#define LITE3_NODE_GEN_MASK  ((u32)~((1 << 8) - 1)) // 24 MSB
+static inline const lite3_node_cfg *_lite3_node_cfg_from_gen_type(u32 gen_type)
+{
+        return lite3_node_cfg_from_id((enum lite3_node_cfg_id)((gen_type & LITE3_NODE_CFG_MASK) >> LITE3_NODE_CFG_SHIFT));
+}
 
-#define LITE3_NODE_KEY_COUNT_MAX ((int)(sizeof(((struct node *)0)->hashes) / sizeof(u32)))
-#define LITE3_NODE_KEY_COUNT_MIN ((int)(LITE3_NODE_KEY_COUNT_MAX / 2))
+static inline const lite3_node_cfg *_lite3_node_cfg_from_node(const struct node *node)
+{
+        return _lite3_node_cfg_from_gen_type(node->gen_type);
+}
 
-#define LITE3_NODE_KEY_COUNT_SHIFT 0
-// #define LITE3_NODE_KEY_COUNT_MASK ((u32)((1 << 2) - 1))  // 2 LSB	key_count: 0-3          hashes[3]       kv_ofs[3]       child_ofs[4]	LITE3_NODE_SIZE: 48 (0.75 cache lines)
-#define LITE3_NODE_KEY_COUNT_MASK ((u32)((1 << 3) - 1))  // 3 LSB	key_count: 0-7          hashes[7]       kv_ofs[7]       child_ofs[8]	LITE3_NODE_SIZE: 96 (1.5 cache lines)
-// #define LITE3_NODE_KEY_COUNT_MASK ((u32)((1 << 4) - 1))  // 4 LSB	key_count: 0-15         hashes[15]      kv_ofs[15]      child_ofs[16]	LITE3_NODE_SIZE: 192 (3 cache lines)
-// #define LITE3_NODE_KEY_COUNT_MASK ((u32)((1 << 5) - 1))  // 5 LSB	key_count: 0-31         hashes[31]      kv_ofs[31]      child_ofs[32]	LITE3_NODE_SIZE: 384 (6 cache lines)
-// #define LITE3_NODE_KEY_COUNT_MASK ((u32)((1 << 6) - 1))  // 6 LSB	key_count: 0-63         hashes[63]      kv_ofs[63]      child_ofs[64]	LITE3_NODE_SIZE: 768 (12 cache lines)
+static inline u32 *_lite3_node_hashes(const lite3_node_cfg *cfg, struct node *node)
+{
+        (void)cfg;
+        return (u32 *)((u8 *)node + sizeof(u32));
+}
 
+static inline const u32 *_lite3_node_hashes_c(const lite3_node_cfg *cfg, const struct node *node)
+{
+        (void)cfg;
+        return (const u32 *)((const u8 *)node + sizeof(u32));
+}
 
+static inline u32 *_lite3_node_size_kc(const lite3_node_cfg *cfg, struct node *node)
+{
+        return (u32 *)((u8 *)node + cfg->size_kc_offset);
+}
+
+static inline const u32 *_lite3_node_size_kc_c(const lite3_node_cfg *cfg, const struct node *node)
+{
+        return (const u32 *)((const u8 *)node + cfg->size_kc_offset);
+}
+
+static inline u32 *_lite3_node_kv_ofs(const lite3_node_cfg *cfg, struct node *node)
+{
+        return (u32 *)((u8 *)node + cfg->size_kc_offset + sizeof(u32));
+}
+
+static inline const u32 *_lite3_node_kv_ofs_c(const lite3_node_cfg *cfg, const struct node *node)
+{
+        return (const u32 *)((const u8 *)node + cfg->size_kc_offset + sizeof(u32));
+}
+
+static inline u32 *_lite3_node_child_ofs(const lite3_node_cfg *cfg, struct node *node)
+{
+        return _lite3_node_kv_ofs(cfg, node) + cfg->key_count_max;
+}
+
+static inline const u32 *_lite3_node_child_ofs_c(const lite3_node_cfg *cfg, const struct node *node)
+{
+        return _lite3_node_kv_ofs_c(cfg, node) + cfg->key_count_max;
+}
+
+static inline u32 _lite3_node_key_count(const lite3_node_cfg *cfg, u32 size_kc)
+{
+        return size_kc & cfg->key_count_mask;
+}
+
+static inline u32 _lite3_node_size(const lite3_node_cfg *cfg, u32 size_kc)
+{
+        (void)cfg;
+        return size_kc >> LITE3_NODE_SIZE_SHIFT;
+}
+
+static inline u32 _lite3_pack_size_kc(u32 size, u32 key_count)
+{
+	return (size << LITE3_NODE_SIZE_SHIFT) | (key_count & LITE3_NODE_KEY_COUNT_MASK);
+}
+
+static inline size_t _lite3_alignment_mask_for_val_len(size_t val_len)
+{
+	for (size_t i = 0; i < LITE3_NODE_CFG_COUNT; i++) {
+		size_t candidate = lite3_node_cfg_table[i].node_size - LITE3_VAL_SIZE;
+		if (candidate == val_len)
+			return (size_t)LITE3_NODE_ALIGNMENT_MASK;
+	}
+	return 0;
+}
 
 #define LITE3_KEY_TAG_SIZE_MIN 1
 #define LITE3_KEY_TAG_SIZE_MAX 4
@@ -238,6 +277,10 @@ int lite3_get_impl(
 					+ !!(key_data.size >> (8 - LITE3_KEY_TAG_KEY_SIZE_SHIFT))
 					+ !!key_data.size);
 
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+
 	struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
 
 	if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
@@ -250,12 +293,16 @@ int lite3_get_impl(
 	int i;
 	int node_walks = 0;
 	while (1) {
-		key_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
+		const u32 *hashes = _lite3_node_hashes_c(cfg, node);
+		const u32 *kv_ofs = _lite3_node_kv_ofs_c(cfg, node);
+		const u32 *child_ofs = _lite3_node_child_ofs_c(cfg, node);
+		const u32 *size_kc_ptr = _lite3_node_size_kc_c(cfg, node);
+		key_count = (int)_lite3_node_key_count(cfg, *size_kc_ptr);
 		i = 0;
-		while (i < key_count && node->hashes[i] < key_data.hash)
+		while (i < key_count && hashes[i] < key_data.hash)
 			i++;
-		if (i < key_count && node->hashes[i] == key_data.hash) {		// target key found
-			size_t target_ofs = node->kv_ofs[i];
+		if (i < key_count && hashes[i] == key_data.hash) {		// target key found
+			size_t target_ofs = kv_ofs[i];
 			if (key && _verify_key(buf, buflen, key, (size_t)key_data.size, key_tag_size, &target_ofs, NULL) < 0)
 				return -1;
 			size_t val_start_ofs = target_ofs;
@@ -264,8 +311,8 @@ int lite3_get_impl(
 			*out = (lite3_val *)(buf + val_start_ofs);
 			return 0;
 		}
-		if (node->child_ofs[0]) {						// if children, walk to next node
-			size_t next_node_ofs = (size_t)node->child_ofs[i];
+		if (child_ofs[0]) {						// if children, walk to next node
+			size_t next_node_ofs = (size_t)child_ofs[i];
 			node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
 
 			if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
@@ -273,12 +320,12 @@ int lite3_get_impl(
 				errno = EBADMSG;
 				return -1;
 			}
-			if (LITE3_UNLIKELY(next_node_ofs > buflen - LITE3_NODE_SIZE)) {
+			if (LITE3_UNLIKELY(next_node_ofs > buflen - cfg->node_size)) {
 				LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
 				errno = EFAULT;
 				return -1;
 			}
-			if (LITE3_UNLIKELY(++node_walks > LITE3_TREE_HEIGHT_MAX)) {
+			if (LITE3_UNLIKELY(++node_walks > cfg->tree_height_max)) {
 				LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
 				errno = EBADMSG;
 				return -1;
@@ -295,6 +342,10 @@ int lite3_iter_create_impl(const unsigned char *buf, size_t buflen, size_t ofs, 
 {
 	LITE3_PRINT_DEBUG("CREATE ITER\n");
 
+	const lite3_node_cfg *cfg = NULL;
+	if (_lite3_cfg_for_offset(buf, buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+
 	struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
 
 	if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
@@ -303,47 +354,53 @@ int lite3_iter_create_impl(const unsigned char *buf, size_t buflen, size_t ofs, 
 		return -1;
 	}
 
-	enum lite3_type type = node->gen_type & LITE3_NODE_TYPE_MASK;
+	enum lite3_type type = (enum lite3_type)(node->gen_type & LITE3_NODE_TYPE_MASK);
 	if (LITE3_UNLIKELY(!(type == LITE3_TYPE_OBJECT || type == LITE3_TYPE_ARRAY))) {
 		LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING ARRAY OR OBJECT TYPE\n");
 		errno = EINVAL;
 		return -1;
 	}
 	out->gen = ((struct node *)buf)->gen_type;
+	out->cfg_id = cfg->id;
+	out->key_count_mask = cfg->key_count_mask;
+	out->tree_height_max = cfg->tree_height_max;
 	out->depth = 0;
 	out->node_ofs[0] = (u32)ofs;
 	out->node_i[0] = 0;
 
-	while (node->child_ofs[0]) {							// has children, travel down
-		u32 next_node_ofs = node->child_ofs[0];
+	const u32 *child_ofs = _lite3_node_child_ofs_c(cfg, node);
+	while (child_ofs[0]) {							// has children, travel down
+		u32 next_node_ofs = child_ofs[0];
 
 		node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
-
+		
 		if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
 			LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 			errno = EBADMSG;
 			return -1;
 		}
-		if (LITE3_UNLIKELY(++out->depth > LITE3_TREE_HEIGHT_MAX)) {
+		if (LITE3_UNLIKELY(++out->depth > cfg->tree_height_max || out->depth > LITE3_TREE_HEIGHT_MAX_STATIC)) {
 			LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
 			errno = EBADMSG;
 			return -1;
 		}
-		if (LITE3_UNLIKELY((size_t)next_node_ofs > buflen - LITE3_NODE_SIZE)) {
+		if (LITE3_UNLIKELY((size_t)next_node_ofs > buflen - cfg->node_size)) {
 			LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
 			errno = EFAULT;
 			return -1;
 		}
 		out->node_ofs[out->depth] = next_node_ofs;
 		out->node_i[out->depth] = 0;
+		child_ofs = _lite3_node_child_ofs_c(cfg, node);
 	}
 	#ifdef LITE3_PREFETCHING
-	__builtin_prefetch(buf + node->kv_ofs[0],      0, 0); // prefetch first few items
-	__builtin_prefetch(buf + node->kv_ofs[0] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[1],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[1] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[2],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[2] + 64, 0, 0);
+	const u32 *kv_ofs = _lite3_node_kv_ofs_c(cfg, node);
+	__builtin_prefetch(buf + kv_ofs[0],      0, 0); // prefetch first few items
+	__builtin_prefetch(buf + kv_ofs[0] + 64, 0, 0);
+	__builtin_prefetch(buf + kv_ofs[1 & cfg->key_count_mask],      0, 0);
+	__builtin_prefetch(buf + kv_ofs[1 & cfg->key_count_mask] + 64, 0, 0);
+	__builtin_prefetch(buf + kv_ofs[2 & cfg->key_count_mask],      0, 0);
+	__builtin_prefetch(buf + kv_ofs[2 & cfg->key_count_mask] + 64, 0, 0);
 	#endif
 	return 0;
 }
@@ -363,17 +420,44 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 		errno = EBADMSG;
 		return -1;
 	}
-
-	enum lite3_type type = node->gen_type & LITE3_NODE_TYPE_MASK;
-	if (LITE3_UNLIKELY(!(type == LITE3_TYPE_OBJECT || type == LITE3_TYPE_ARRAY))) {
-		LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING ARRAY ORlite3_iter_nex OBJECT TYPE\n");
+	u32 node_cfg_id = (node->gen_type & LITE3_NODE_CFG_MASK) >> LITE3_NODE_CFG_SHIFT;
+	if (LITE3_UNLIKELY(node_cfg_id >= LITE3_NODE_CFG_COUNT)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: NODE CFG ID OUT OF RANGE\n");
+		errno = EBADMSG;
+		return -1;
+	}
+	if (LITE3_UNLIKELY(node_cfg_id != iter->cfg_id)) {
+		LITE3_PRINT_ERROR("ITERATOR INVALID: cfg mismatch\n");
+		errno = EBADMSG;
+		return -1;
+	}
+	const lite3_node_cfg *cfg = &lite3_node_cfg_table[node_cfg_id];
+	if (LITE3_UNLIKELY(iter->depth > cfg->tree_height_max || iter->depth > LITE3_TREE_HEIGHT_MAX_STATIC)) {
+		LITE3_PRINT_ERROR("ITERATOR INVALID: depth exceeds maximum\n");
 		errno = EINVAL;
 		return -1;
 	}
-	if (iter->depth == 0 && (iter->node_i[iter->depth] == (node->size_kc & LITE3_NODE_KEY_COUNT_MASK))) { // key_count reached, done
+	enum lite3_type type = node->gen_type & LITE3_NODE_TYPE_MASK;
+	if (LITE3_UNLIKELY(!(type == LITE3_TYPE_OBJECT || type == LITE3_TYPE_ARRAY))) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING ARRAY OR OBJECT TYPE\n");
+		errno = EINVAL;
+		return -1;
+	}
+	if (LITE3_UNLIKELY(buflen < iter->node_ofs[iter->depth] + cfg->node_size)) {
+		LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
+		errno = EFAULT;
+		return -1;
+	}
+	const u32 *size_kc_ptr = _lite3_node_size_kc_c(cfg, node);
+	int key_count = (int)_lite3_node_key_count(cfg, *size_kc_ptr);
+	if (iter->depth == 0 && (iter->node_i[iter->depth] == key_count)) { // key_count reached, done
 		return LITE3_ITER_DONE;
 	}
-	size_t target_ofs = node->kv_ofs[iter->node_i[iter->depth]];
+	if (LITE3_UNLIKELY(key_count == 0))
+		return LITE3_ITER_DONE;
+	const u32 *kv_ofs = _lite3_node_kv_ofs_c(cfg, node);
+	const u32 *child_ofs = _lite3_node_child_ofs_c(cfg, node);
+	size_t target_ofs = kv_ofs[iter->node_i[iter->depth] & cfg->key_count_mask];
 
 	int ret;
 	if (type == LITE3_TYPE_OBJECT && out_key) {					// write back key if not NULL
@@ -396,8 +480,8 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 
 	++iter->node_i[iter->depth];
 
-	while (node->child_ofs[iter->node_i[iter->depth]]) {				// has children, travel down
-		u32 next_node_ofs = node->child_ofs[iter->node_i[iter->depth]];
+	while (child_ofs[iter->node_i[iter->depth] & cfg->key_count_mask]) {				// has children, travel down
+		u32 next_node_ofs = child_ofs[iter->node_i[iter->depth] & cfg->key_count_mask];
 
 		node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
 		
@@ -406,20 +490,30 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 			errno = EBADMSG;
 			return -1;
 		}
-		if (LITE3_UNLIKELY(++iter->depth > LITE3_TREE_HEIGHT_MAX)) {
+		node_cfg_id = (node->gen_type & LITE3_NODE_CFG_MASK) >> LITE3_NODE_CFG_SHIFT;
+		if (LITE3_UNLIKELY(node_cfg_id >= LITE3_NODE_CFG_COUNT || node_cfg_id != iter->cfg_id)) {
+			LITE3_PRINT_ERROR("ITERATOR INVALID: cfg mismatch\n");
+			errno = EBADMSG;
+			return -1;
+		}
+		if (LITE3_UNLIKELY(++iter->depth > cfg->tree_height_max || iter->depth > LITE3_TREE_HEIGHT_MAX_STATIC)) {
 			LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
 			errno = EBADMSG;
 			return -1;
 		}
-		if (LITE3_UNLIKELY((size_t)next_node_ofs > buflen - LITE3_NODE_SIZE)) {
+		if (LITE3_UNLIKELY((size_t)next_node_ofs > buflen - cfg->node_size)) {
 			LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
 			errno = EFAULT;
 			return -1;
 		}
 		iter->node_ofs[iter->depth] = next_node_ofs;
 		iter->node_i[iter->depth] = 0;
+		size_kc_ptr = _lite3_node_size_kc_c(cfg, node);
+		key_count = (int)_lite3_node_key_count(cfg, *size_kc_ptr);
+		kv_ofs = _lite3_node_kv_ofs_c(cfg, node);
+		child_ofs = _lite3_node_child_ofs_c(cfg, node);
 	}
-	while (iter->depth > 0 && (iter->node_i[iter->depth] == (node->size_kc & LITE3_NODE_KEY_COUNT_MASK))) { // key_count reached, go up
+	while (iter->depth > 0 && (iter->node_i[iter->depth] == key_count)) { // key_count reached, go up
 		--iter->depth;
 		node = __builtin_assume_aligned((struct node *)(buf + iter->node_ofs[iter->depth]), LITE3_NODE_ALIGNMENT);
 		
@@ -428,60 +522,109 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 			errno = EBADMSG;
 			return -1;
 		}
+		node_cfg_id = (node->gen_type & LITE3_NODE_CFG_MASK) >> LITE3_NODE_CFG_SHIFT;
+		if (LITE3_UNLIKELY(node_cfg_id >= LITE3_NODE_CFG_COUNT || node_cfg_id != iter->cfg_id)) {
+			LITE3_PRINT_ERROR("ITERATOR INVALID: cfg mismatch\n");
+			errno = EBADMSG;
+			return -1;
+		}
+		size_kc_ptr = _lite3_node_size_kc_c(cfg, node);
+		key_count = (int)_lite3_node_key_count(cfg, *size_kc_ptr);
+		kv_ofs = _lite3_node_kv_ofs_c(cfg, node);
+		child_ofs = _lite3_node_child_ofs_c(cfg, node);
 		#ifdef LITE3_PREFETCHING
-		__builtin_prefetch(buf + node->child_ofs[(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK],      0, 2); // prefetch next nodes
-		__builtin_prefetch(buf + node->child_ofs[(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 2);
-		__builtin_prefetch(buf + node->child_ofs[(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK],      0, 2);
-		__builtin_prefetch(buf + node->child_ofs[(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 2);
+		__builtin_prefetch(buf + child_ofs[(iter->node_i[iter->depth] + 1) & cfg->key_count_mask],      0, 2); // prefetch next nodes
+		__builtin_prefetch(buf + child_ofs[(iter->node_i[iter->depth] + 1) & cfg->key_count_mask] + 64, 0, 2);
+		__builtin_prefetch(buf + child_ofs[(iter->node_i[iter->depth] + 2) & cfg->key_count_mask],      0, 2);
+		__builtin_prefetch(buf + child_ofs[(iter->node_i[iter->depth] + 2) & cfg->key_count_mask] + 64, 0, 2);
 		#endif
 	}
 	#ifdef LITE3_PREFETCHING
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 0) & LITE3_NODE_KEY_COUNT_MASK],      0, 0); // prefetch next items
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 0) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
+	__builtin_prefetch(buf + kv_ofs[(iter->node_i[iter->depth] + 0) & cfg->key_count_mask],      0, 0); // prefetch next items
+	__builtin_prefetch(buf + kv_ofs[(iter->node_i[iter->depth] + 0) & cfg->key_count_mask] + 64, 0, 0);
+	__builtin_prefetch(buf + kv_ofs[(iter->node_i[iter->depth] + 1) & cfg->key_count_mask],      0, 0);
+	__builtin_prefetch(buf + kv_ofs[(iter->node_i[iter->depth] + 1) & cfg->key_count_mask] + 64, 0, 0);
+	__builtin_prefetch(buf + kv_ofs[(iter->node_i[iter->depth] + 2) & cfg->key_count_mask],      0, 0);
+	__builtin_prefetch(buf + kv_ofs[(iter->node_i[iter->depth] + 2) & cfg->key_count_mask] + 64, 0, 0);
 	#endif
 	return LITE3_ITER_ITEM;
 }
 
 
-static inline void _lite3_init_impl(unsigned char *buf, size_t ofs, enum lite3_type type)
+static inline void _lite3_init_impl(unsigned char *buf, size_t ofs, enum lite3_type type, const lite3_node_cfg *cfg)
 {
 	LITE3_PRINT_DEBUG("INITIALIZE %s\n", type == LITE3_TYPE_OBJECT ? "OBJECT" : "ARRAY");
 
 	struct node *node = (struct node *)(buf + ofs);
-	node->gen_type = type & LITE3_NODE_TYPE_MASK;
-	node->size_kc = 0x00;
+	node->gen_type = ((u32)(cfg->id) << LITE3_NODE_CFG_SHIFT) | (u32)(type & LITE3_NODE_TYPE_MASK);
+	u32 *size_kc = _lite3_node_size_kc(cfg, node);
+	*size_kc = 0x00;
 	#ifdef LITE3_ZERO_MEM_EXTRA
-		memset(node->hashes, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->hashes));
-		memset(node->kv_ofs, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->kv_ofs));
+		memset(_lite3_node_hashes(cfg, node), LITE3_ZERO_MEM_8, cfg->key_count_max * sizeof(u32));
+		memset(_lite3_node_kv_ofs(cfg, node), LITE3_ZERO_MEM_8, cfg->key_count_max * sizeof(u32));
 	#endif
-	memset(node->child_ofs, 0x00, sizeof(((struct node *)0)->child_ofs));
+	memset(_lite3_node_child_ofs(cfg, node), 0x00, cfg->child_count * sizeof(u32));
 }
 
 int lite3_init_obj(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz)
 {
-	if (LITE3_UNLIKELY(bufsz < LITE3_NODE_SIZE)) {
-		LITE3_PRINT_ERROR("INVALID ARGUMENT: bufsz < LITE3_NODE_SIZE\n");
+	const lite3_node_cfg *cfg = lite3_node_cfg_default();
+	if (LITE3_UNLIKELY(bufsz < cfg->node_size)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: bufsz < node size\n");
 		errno = EINVAL;
 		return -1;
 	}
-	_lite3_init_impl(buf, 0, LITE3_TYPE_OBJECT);
-	*out_buflen = LITE3_NODE_SIZE;
+	_lite3_init_impl(buf, 0, LITE3_TYPE_OBJECT, cfg);
+	*out_buflen = cfg->node_size;
 	return 0;
 }
 
 int lite3_init_arr(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz)
 {
-	if (LITE3_UNLIKELY(bufsz < LITE3_NODE_SIZE)) {
-		LITE3_PRINT_ERROR("INVALID ARGUMENT: bufsz < LITE3_NODE_SIZE\n");
+	const lite3_node_cfg *cfg = lite3_node_cfg_default();
+	if (LITE3_UNLIKELY(bufsz < cfg->node_size)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: bufsz < node size\n");
 		errno = EINVAL;
 		return -1;
 	}
-	_lite3_init_impl(buf, 0, LITE3_TYPE_ARRAY);
-	*out_buflen = LITE3_NODE_SIZE;
+	_lite3_init_impl(buf, 0, LITE3_TYPE_ARRAY, cfg);
+	*out_buflen = cfg->node_size;
+	return 0;
+}
+
+int lite3_init_obj_cfg(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz, enum lite3_node_cfg_id cfg_id)
+{
+	const lite3_node_cfg *cfg = lite3_node_cfg_from_id(cfg_id);
+	if (LITE3_UNLIKELY(!cfg)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: NODE CFG ID OUT OF RANGE\n");
+		errno = EINVAL;
+		return -1;
+	}
+	if (LITE3_UNLIKELY(bufsz < cfg->node_size)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: bufsz < node size\n");
+		errno = EINVAL;
+		return -1;
+	}
+	_lite3_init_impl(buf, 0, LITE3_TYPE_OBJECT, cfg);
+	*out_buflen = cfg->node_size;
+	return 0;
+}
+
+int lite3_init_arr_cfg(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz, enum lite3_node_cfg_id cfg_id)
+{
+	const lite3_node_cfg *cfg = lite3_node_cfg_from_id(cfg_id);
+	if (LITE3_UNLIKELY(!cfg)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: NODE CFG ID OUT OF RANGE\n");
+		errno = EINVAL;
+		return -1;
+	}
+	if (LITE3_UNLIKELY(bufsz < cfg->node_size)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: bufsz < node size\n");
+		errno = EINVAL;
+		return -1;
+	}
+	_lite3_init_impl(buf, 0, LITE3_TYPE_ARRAY, cfg);
+	*out_buflen = cfg->node_size;
 	return 0;
 }
 
@@ -510,7 +653,7 @@ int lite3_set_impl(
 	if (*(buf + ofs) == LITE3_TYPE_OBJECT) {
 		LITE3_PRINT_DEBUG("SET\tkey: %s\n", key);
 	} else if (*(buf + ofs) == LITE3_TYPE_ARRAY) {
-		LITE3_PRINT_DEBUG("SET\tindex: %u\n", key_data.hash);
+	LITE3_PRINT_DEBUG("SET\tindex: %u\n", key_data.hash);
 	} else {
 		LITE3_PRINT_DEBUG("SET INVALID: EXEPCTING ARRAY OR OBJECT TYPE\n");
 	}
@@ -520,10 +663,14 @@ int lite3_set_impl(
 					+ !!key_data.size);
 	size_t entry_size = key_tag_size + (size_t)key_data.size + LITE3_VAL_SIZE + val_len;
 
+	const lite3_node_cfg *cfg = NULL;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+
 	struct node *restrict parent = NULL;
 	struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
-	
-	if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+
+	if (LITE3_UNLIKELY(!_lite3_node_aligned(node))) {
 		LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 		errno = EBADMSG;
 		return -1;
@@ -532,15 +679,19 @@ int lite3_set_impl(
 	u32 gen = node->gen_type >> LITE3_NODE_GEN_SHIFT;
 	++gen;
 	node->gen_type = (node->gen_type & ~LITE3_NODE_GEN_MASK) | (gen << LITE3_NODE_GEN_SHIFT);
-	
-	int key_count;
-	int i;
+
 	int node_walks = 0;
 	while (1) {
-		if ((node->size_kc & LITE3_NODE_KEY_COUNT_MASK) == LITE3_NODE_KEY_COUNT_MAX) {	// node full, need to split
+		u32 *hashes = _lite3_node_hashes(cfg, node);
+		u32 *kv_ofs = _lite3_node_kv_ofs(cfg, node);
+		u32 *child_ofs = _lite3_node_child_ofs(cfg, node);
+		u32 *size_kc_ptr = _lite3_node_size_kc(cfg, node);
+		int key_count = (int)_lite3_node_key_count(cfg, *size_kc_ptr);
+
+		if (key_count == cfg->key_count_max) {	// node full, need to split
 
 			size_t buflen_aligned = (*inout_buflen + LITE3_NODE_ALIGNMENT_MASK) & ~(size_t)LITE3_NODE_ALIGNMENT_MASK; // next multiple of LITE3_NODE_ALIGNMENT
-			size_t new_node_size = parent ? LITE3_NODE_SIZE : 2 * LITE3_NODE_SIZE;
+			size_t new_node_size = parent ? cfg->node_size : 2 * cfg->node_size;
 
 			if (LITE3_UNLIKELY(new_node_size > bufsz || buflen_aligned > bufsz - new_node_size)) {
 				LITE3_PRINT_ERROR("NO BUFFER SPACE FOR NODE SPLIT\n");
@@ -548,103 +699,118 @@ int lite3_set_impl(
 				return -1;
 			}
 			*inout_buflen = buflen_aligned;
-			// TODO: add lost bytes from alignment to GC index
 			if (!parent) {								// if root split, create new root
 				LITE3_PRINT_DEBUG("NEW ROOT\n");
-				memcpy(buf + *inout_buflen, node, LITE3_NODE_SIZE);
+				memcpy(buf + *inout_buflen, node, cfg->node_size);
 				node = __builtin_assume_aligned((struct node *)(buf + *inout_buflen), LITE3_NODE_ALIGNMENT);
-				
-				if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+
+				if (LITE3_UNLIKELY(!_lite3_node_aligned(node))) {
 					LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 					errno = EBADMSG;
 					return -1;
 				}
 				parent = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
-				
-				if (LITE3_UNLIKELY(((uintptr_t)parent & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+
+				if (LITE3_UNLIKELY(!_lite3_node_aligned(parent))) {
 					LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 					errno = EBADMSG;
 					return -1;
 				}
 				#ifdef LITE3_ZERO_MEM_EXTRA
-					memset(parent->hashes, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->hashes));
-					memset(parent->kv_ofs, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->kv_ofs));
-					memset(parent->child_ofs, 0x00,          sizeof(((struct node *)0)->child_ofs));
+					memset(_lite3_node_hashes(cfg, parent), LITE3_ZERO_MEM_8, cfg->key_count_max * sizeof(u32));
+					memset(_lite3_node_kv_ofs(cfg, parent), LITE3_ZERO_MEM_8, cfg->key_count_max * sizeof(u32));
 				#endif
-				parent->size_kc &= ~LITE3_NODE_KEY_COUNT_MASK;			// set key_count to 0
-				parent->child_ofs[0] = (u32)*inout_buflen;			// insert node as child of new root
-				*inout_buflen += LITE3_NODE_SIZE;
-				key_count = 0;
-				i = 0;
+				memset(_lite3_node_child_ofs(cfg, parent), 0x00, cfg->child_count * sizeof(u32));
+				u32 *parent_size_kc_root = _lite3_node_size_kc(cfg, parent);
+				u32 parent_size_root = _lite3_node_size(cfg, *parent_size_kc_root);
+				*parent_size_kc_root = _lite3_pack_size_kc(parent_size_root, 0);
+				_lite3_node_child_ofs(cfg, parent)[0] = (u32)*inout_buflen;			// insert node as child of new root
+				*inout_buflen += cfg->node_size;
+				hashes = _lite3_node_hashes(cfg, node);
+				kv_ofs = _lite3_node_kv_ofs(cfg, node);
+				child_ofs = _lite3_node_child_ofs(cfg, node);
+				size_kc_ptr = _lite3_node_size_kc(cfg, node);
+				key_count = (int)_lite3_node_key_count(cfg, *size_kc_ptr);
 			}
 			LITE3_PRINT_DEBUG("SPLIT NODE\n");
-			for (int j = key_count; j > i; j--) {					// shift parent array before separator insert
-				parent->hashes[j] =        parent->hashes[j - 1];
-				parent->kv_ofs[j] =        parent->kv_ofs[j - 1];
-				parent->child_ofs[j + 1] = parent->child_ofs[j];
+			u32 *parent_hashes = _lite3_node_hashes(cfg, parent);
+			u32 *parent_kv_ofs = _lite3_node_kv_ofs(cfg, parent);
+			u32 *parent_child_ofs = _lite3_node_child_ofs(cfg, parent);
+			u32 *parent_size_kc_ptr = _lite3_node_size_kc(cfg, parent);
+			u32 parent_size = _lite3_node_size(cfg, *parent_size_kc_ptr);
+			u32 parent_key_count = _lite3_node_key_count(cfg, *parent_size_kc_ptr);
+
+			// Insert median into parent based on existing parent keys
+			int parent_insert_idx = 0;
+			u32 median_hash = hashes[cfg->key_count_min];
+			while (parent_insert_idx < (int)parent_key_count && parent_hashes[parent_insert_idx] < median_hash)
+				parent_insert_idx++;
+
+			for (int j = (int)parent_key_count; j > parent_insert_idx; j--) {					// shift parent array before separator insert
+				parent_hashes[j] =        parent_hashes[j - 1];
+				parent_kv_ofs[j] =        parent_kv_ofs[j - 1];
+				parent_child_ofs[j + 1] = parent_child_ofs[j];
 			}
-			parent->hashes[i] = node->hashes[LITE3_NODE_KEY_COUNT_MIN];		// insert new separator key in parent
-			parent->kv_ofs[i] = node->kv_ofs[LITE3_NODE_KEY_COUNT_MIN];
-			parent->child_ofs[i + 1] = (u32)*inout_buflen;				// insert sibling as child in parent
-			parent->size_kc = (parent->size_kc & ~LITE3_NODE_KEY_COUNT_MASK)
-			                    | ((parent->size_kc + 1) & LITE3_NODE_KEY_COUNT_MASK); // key_count++
+			parent_hashes[parent_insert_idx] = median_hash;		// insert new separator key in parent
+			parent_kv_ofs[parent_insert_idx] = kv_ofs[cfg->key_count_min];
+			parent_child_ofs[parent_insert_idx + 1] = (u32)*inout_buflen;				// insert sibling as child in parent
+			*parent_size_kc_ptr = _lite3_pack_size_kc(parent_size, parent_key_count + 1);
 			#ifdef LITE3_ZERO_MEM_EXTRA
-				node->hashes[LITE3_NODE_KEY_COUNT_MIN] = LITE3_ZERO_MEM_32;
-				node->kv_ofs[LITE3_NODE_KEY_COUNT_MIN] = LITE3_ZERO_MEM_32;
+				hashes[cfg->key_count_min] = LITE3_ZERO_MEM_32;
+				kv_ofs[cfg->key_count_min] = LITE3_ZERO_MEM_32;
 			#endif
 			struct node *restrict sibling = __builtin_assume_aligned((struct node *)(buf + *inout_buflen), LITE3_NODE_ALIGNMENT);
-			
-			if (LITE3_UNLIKELY(((uintptr_t)sibling & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+
+			if (LITE3_UNLIKELY(!_lite3_node_aligned(sibling))) {
 				LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 				errno = EBADMSG;
 				return -1;
 			}
 			#ifdef LITE3_ZERO_MEM_EXTRA
-				memset(sibling->hashes, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->hashes));
-				memset(sibling->kv_ofs, LITE3_ZERO_MEM_8, sizeof(((struct node *)0)->kv_ofs));
+				memset(_lite3_node_hashes(cfg, sibling), LITE3_ZERO_MEM_8, cfg->key_count_max * sizeof(u32));
+				memset(_lite3_node_kv_ofs(cfg, sibling), LITE3_ZERO_MEM_8, cfg->key_count_max * sizeof(u32));
 			#endif
-			sibling->gen_type = ((struct node *)(buf + ofs))->gen_type & LITE3_NODE_TYPE_MASK;
-			sibling->size_kc = 	LITE3_NODE_KEY_COUNT_MIN & LITE3_NODE_KEY_COUNT_MASK;
-			node->size_kc = 	LITE3_NODE_KEY_COUNT_MIN & LITE3_NODE_KEY_COUNT_MASK;
-			memset(sibling->child_ofs, 0x00, sizeof(((struct node *)0)->child_ofs));
-			sibling->child_ofs[0] = node->child_ofs[LITE3_NODE_KEY_COUNT_MIN + 1];	// take child from node
-			                        node->child_ofs[LITE3_NODE_KEY_COUNT_MIN + 1] = 0x00;
-			for (int j = 0; j < LITE3_NODE_KEY_COUNT_MIN; j++) {			// copy half of node's keys to sibling
-				sibling->hashes[j] =        node->hashes[j + LITE3_NODE_KEY_COUNT_MIN + 1];
-				sibling->kv_ofs[j] =        node->kv_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 1];
-				sibling->child_ofs[j + 1] = node->child_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 2];
+			u32 root_gen_type = ((struct node *)(buf + ofs))->gen_type;
+			sibling->gen_type = root_gen_type & (LITE3_NODE_GEN_MASK | LITE3_NODE_CFG_MASK | LITE3_NODE_TYPE_MASK);
+			u32 *sibling_size_kc = _lite3_node_size_kc(cfg, sibling);
+			*sibling_size_kc = 	_lite3_pack_size_kc(0, cfg->key_count_min);
+			*size_kc_ptr = 	_lite3_pack_size_kc(_lite3_node_size(cfg, *size_kc_ptr), cfg->key_count_min);
+			u32 *sibling_child_ofs = _lite3_node_child_ofs(cfg, sibling);
+			sibling_child_ofs[0] = child_ofs[cfg->key_count_min + 1];	// take child from node
+			                        child_ofs[cfg->key_count_min + 1] = 0x00;
+			u32 *sibling_hashes = _lite3_node_hashes(cfg, sibling);
+			u32 *sibling_kv_ofs = _lite3_node_kv_ofs(cfg, sibling);
+			for (int j = 0; j < cfg->key_count_min; j++) {			// copy half of node's keys to sibling
+				int src_idx = j + cfg->key_count_min + 1;
+				sibling_hashes[j] =        hashes[src_idx];
+				sibling_kv_ofs[j] =        kv_ofs[src_idx];
+				sibling_child_ofs[j + 1] = child_ofs[src_idx + 1];
 				#ifdef LITE3_ZERO_MEM_EXTRA
-					node->hashes[j + LITE3_NODE_KEY_COUNT_MIN + 1] =    LITE3_ZERO_MEM_32;
-					node->kv_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 1] =    LITE3_ZERO_MEM_32;
-					node->child_ofs[j + LITE3_NODE_KEY_COUNT_MIN + 2] = 0x00000000;
+					hashes[src_idx] =    LITE3_ZERO_MEM_32;
+					kv_ofs[src_idx] =    LITE3_ZERO_MEM_32;
+					child_ofs[src_idx + 1] = 0x00000000;
 				#endif
 			}
-			if (key_data.hash > parent->hashes[i]) {				// sibling has target key? then we follow
+			if (key_data.hash >= parent_hashes[parent_insert_idx]) {				// sibling has target key? then we follow
 				node = __builtin_assume_aligned(sibling, LITE3_NODE_ALIGNMENT);
-				
-				if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-					LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-					errno = EBADMSG;
-					return -1;
-				}
 			}
-			*inout_buflen += LITE3_NODE_SIZE;
+			*inout_buflen += cfg->node_size;
+			continue;
 		}
 
-		key_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
-		i = 0;
-		while (i < key_count && node->hashes[i] < key_data.hash)
+		int i = 0;
+		while (i < key_count && hashes[i] < key_data.hash)
 			i++;
-		if (i < key_count && node->hashes[i] == key_data.hash) {			// matching key found, already exists?
-			size_t target_ofs = node->kv_ofs[i];
+		if (i < key_count && hashes[i] == key_data.hash) {			// matching key found, already exists?
+			size_t target_ofs = kv_ofs[i];
 			size_t key_start_ofs = target_ofs;
 			if (key && _verify_key(buf, *inout_buflen, key, (size_t)key_data.size, key_tag_size, &target_ofs, NULL) < 0)
 				return -1;
 			size_t val_start_ofs = target_ofs;
 			if (_verify_val(buf, *inout_buflen, &target_ofs) < 0)
 				return -1;
+			size_t alignment_mask = _lite3_alignment_mask_for_val_len(val_len);
 			if (val_len >= target_ofs - val_start_ofs) {				// value is too large, we must append
-				size_t alignment_mask = val_len == lite3_type_sizes[LITE3_TYPE_OBJECT] ? (size_t)LITE3_NODE_ALIGNMENT_MASK : 0;
 				size_t unaligned_val_ofs = *inout_buflen + key_tag_size + (size_t)key_data.size;
 				size_t alignment_padding = ((unaligned_val_ofs + alignment_mask) & ~alignment_mask) - unaligned_val_ofs;
 				entry_size += alignment_padding;
@@ -654,44 +820,42 @@ int lite3_set_impl(
 					return -1;
 				}
 				#ifdef LITE3_ZERO_MEM_DELETED
-					memset(buf + node->kv_ofs[i], LITE3_ZERO_MEM_8, target_ofs - key_start_ofs); // zero out key + value
+					memset(buf + kv_ofs[i], LITE3_ZERO_MEM_8, target_ofs - key_start_ofs); // zero out key + value
 				#endif
 				(void)key_start_ofs;						// silence unused variable warning
 				*inout_buflen += alignment_padding;
-				node->kv_ofs[i] = (u32)*inout_buflen;
+				kv_ofs[i] = (u32)*inout_buflen;
 				goto insert_append;
-				// TODO: add lost bytes to GC index
 			}
 			#ifdef LITE3_ZERO_MEM_DELETED
 				memset(buf + val_start_ofs, LITE3_ZERO_MEM_8, target_ofs - val_start_ofs); // zero out value
 			#endif
 			*out = (lite3_val *)(buf + val_start_ofs);				// caller overwrites value in place
-			// TODO: add lost bytes to GC index
 			return 0;
 		}
-		if (node->child_ofs[0]) {							// if children, walk to next node
-			size_t next_node_ofs = (size_t)node->child_ofs[i];
+		if (child_ofs[0]) {							// if children, walk to next node
+			size_t next_node_ofs = (size_t)child_ofs[i];
 
 			parent = __builtin_assume_aligned(node, LITE3_NODE_ALIGNMENT);
 			node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
-			
-			if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+
+			if (LITE3_UNLIKELY(!_lite3_node_aligned(node))) {
 				LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
 				errno = EBADMSG;
 				return -1;
 			}
-			if (LITE3_UNLIKELY(next_node_ofs > *inout_buflen - LITE3_NODE_SIZE)) {
+			if (LITE3_UNLIKELY(next_node_ofs > *inout_buflen - cfg->node_size)) {
 				LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
 				errno = EFAULT;
 				return -1;
 			}
-			if (LITE3_UNLIKELY(++node_walks > LITE3_TREE_HEIGHT_MAX)) {
+			if (LITE3_UNLIKELY(++node_walks > cfg->tree_height_max)) {
 				LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
 				errno = EBADMSG;
 				return -1;
 			}
 		} else {									// insert the kv-pair
-			size_t alignment_mask = val_len == lite3_type_sizes[LITE3_TYPE_OBJECT] ? (size_t)LITE3_NODE_ALIGNMENT_MASK : 0;
+			size_t alignment_mask = _lite3_alignment_mask_for_val_len(val_len);
 			size_t unaligned_val_ofs = *inout_buflen + key_tag_size + (size_t)key_data.size;
 			size_t alignment_padding = ((unaligned_val_ofs + alignment_mask) & ~alignment_mask) - unaligned_val_ofs;
 			entry_size += alignment_padding;
@@ -701,19 +865,20 @@ int lite3_set_impl(
 				return -1;
 			}
 			for (int j = key_count; j > i; j--) {
-				node->hashes[j] = node->hashes[j - 1];
-				node->kv_ofs[j] = node->kv_ofs[j - 1];
+				hashes[j] = hashes[j - 1];
+				kv_ofs[j] = kv_ofs[j - 1];
 			}
-			node->hashes[i] = key_data.hash;
-			node->size_kc = (node->size_kc & ~LITE3_NODE_KEY_COUNT_MASK)
-			                  | ((node->size_kc + 1) & LITE3_NODE_KEY_COUNT_MASK);	// key_count++
+			hashes[i] = key_data.hash;
+			u32 current_size = _lite3_node_size(cfg, *size_kc_ptr);
+			*size_kc_ptr = _lite3_pack_size_kc(current_size, (u32)key_count + 1);	// key_count++
 			*inout_buflen += alignment_padding;
-			node->kv_ofs[i] = (u32)*inout_buflen;
+			kv_ofs[i] = (u32)*inout_buflen;
 
 			node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT); // set node to root
-			u32 size = node->size_kc >> LITE3_NODE_SIZE_SHIFT;
+			u32 *root_size_kc = _lite3_node_size_kc(cfg, node);
+			u32 size = _lite3_node_size(cfg, *root_size_kc);
 			++size;
-			node->size_kc = (node->size_kc & ~LITE3_NODE_SIZE_MASK) | (size << LITE3_NODE_SIZE_SHIFT); // node size++
+			*root_size_kc = (_lite3_pack_size_kc(size, _lite3_node_key_count(cfg, *root_size_kc)));
 			goto insert_append;
 		}
 	}
@@ -730,71 +895,94 @@ insert_append:
 	return 0;
 }
 
-int lite3_set_obj_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, const char *restrict key, lite3_key_data key_data, size_t *restrict out_ofs)
+static inline int _lite3_set_node_value(
+	unsigned char *buf,
+	size_t *restrict inout_buflen,
+	size_t ofs,
+	size_t bufsz,
+	const char *restrict key,
+	lite3_key_data key_data,
+	enum lite3_type type,
+	const lite3_node_cfg *child_cfg,
+	size_t *restrict out_ofs)
 {
+	if (LITE3_UNLIKELY(!child_cfg)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: NODE CFG ID OUT OF RANGE\n");
+		errno = EINVAL;
+		return -1;
+	}
 	lite3_val *val;
+	size_t val_len = child_cfg->node_size - LITE3_VAL_SIZE;
 	int ret;
-	if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, key, key_data, lite3_type_sizes[LITE3_TYPE_OBJECT], &val)) < 0)
+	if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, key, key_data, val_len, &val)) < 0)
 		return ret;
 	size_t init_ofs = (size_t)((u8 *)val - buf);
 	if (out_ofs)
 		*out_ofs = init_ofs;
-	_lite3_init_impl(buf, init_ofs, LITE3_TYPE_OBJECT);
+	_lite3_init_impl(buf, init_ofs, type, child_cfg);
 	return ret;
+}
+
+static inline u32 _lite3_array_size(const unsigned char *buf, size_t buflen, size_t ofs, const lite3_node_cfg *cfg)
+{
+	(void)buflen;
+	const struct node *root = (const struct node *)(buf + ofs);
+	const u32 *size_kc = _lite3_node_size_kc_c(cfg, root);
+	return (u32)_lite3_node_size(cfg, *size_kc);
+}
+
+int lite3_set_obj_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, const char *restrict key, lite3_key_data key_data, size_t *restrict out_ofs)
+{
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, key, key_data, LITE3_TYPE_OBJECT, lite3_node_cfg_default(), out_ofs);
 }
 
 int lite3_set_arr_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, const char *restrict key, lite3_key_data key_data, size_t *restrict out_ofs)
 {
-	lite3_val *val;
-	int ret;
-	if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, key, key_data, lite3_type_sizes[LITE3_TYPE_ARRAY], &val)) < 0)
-		return ret;
-	size_t init_ofs = (size_t)((u8 *)val - buf);
-	if (out_ofs)
-		*out_ofs = init_ofs;
-	_lite3_init_impl(buf, init_ofs, LITE3_TYPE_ARRAY);
-	return ret;
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, key, key_data, LITE3_TYPE_ARRAY, lite3_node_cfg_default(), out_ofs);
+}
+
+int lite3_set_obj_cfg_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, const char *restrict key, lite3_key_data key_data, enum lite3_node_cfg_id cfg_id, size_t *restrict out_ofs)
+{
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, key, key_data, LITE3_TYPE_OBJECT, lite3_node_cfg_from_id(cfg_id), out_ofs);
+}
+
+int lite3_set_arr_cfg_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, const char *restrict key, lite3_key_data key_data, enum lite3_node_cfg_id cfg_id, size_t *restrict out_ofs)
+{
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, key, key_data, LITE3_TYPE_ARRAY, lite3_node_cfg_from_id(cfg_id), out_ofs);
 }
 
 int lite3_arr_append_obj_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, size_t *restrict out_ofs)
 {
-	u32 size = ((struct node *)(buf + ofs))->size_kc >> LITE3_NODE_SIZE_SHIFT;
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+	u32 size = _lite3_array_size(buf, *inout_buflen, ofs, cfg);
 	lite3_key_data key_data = {
 		.hash = size,
 		.size = 0,
 	};
-	lite3_val *val;
-	int ret;
-	if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, NULL, key_data, lite3_type_sizes[LITE3_TYPE_OBJECT], &val)) < 0)
-		return ret;
-	size_t init_ofs = (size_t)((u8 *)val - buf);
-	if (out_ofs)
-		*out_ofs = init_ofs;
-	_lite3_init_impl(buf, init_ofs, LITE3_TYPE_OBJECT);
-	return ret;
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, NULL, key_data, LITE3_TYPE_OBJECT, lite3_node_cfg_default(), out_ofs);
 }
 
 int lite3_arr_append_arr_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, size_t *restrict out_ofs)
 {
-	u32 size = ((struct node *)(buf + ofs))->size_kc >> LITE3_NODE_SIZE_SHIFT;
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+	u32 size = _lite3_array_size(buf, *inout_buflen, ofs, cfg);
 	lite3_key_data key_data = {
 		.hash = size,
 		.size = 0,
 	};
-	lite3_val *val;
-	int ret;
-	if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, NULL, key_data, lite3_type_sizes[LITE3_TYPE_ARRAY], &val)) < 0)
-		return ret;
-	size_t init_ofs = (size_t)((u8 *)val - buf);
-	if (out_ofs)
-		*out_ofs = init_ofs;
-	_lite3_init_impl(buf, init_ofs, LITE3_TYPE_ARRAY);
-	return ret;
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, NULL, key_data, LITE3_TYPE_ARRAY, lite3_node_cfg_default(), out_ofs);
 }
 
 int lite3_arr_set_obj_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, uint32_t index, size_t *restrict out_ofs)
 {
-	u32 size = ((struct node *)(buf + ofs))->size_kc >> LITE3_NODE_SIZE_SHIFT;
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+	u32 size = _lite3_array_size(buf, *inout_buflen, ofs, cfg);
 	if (LITE3_UNLIKELY(index > size)) {
 		LITE3_PRINT_ERROR("INVALID ARGUMENT: ARRAY INDEX %u OUT OF BOUNDS (size == %u)\n", index, size);
 		errno = EINVAL;
@@ -804,20 +992,15 @@ int lite3_arr_set_obj_impl(unsigned char *buf, size_t *restrict inout_buflen, si
 		.hash = index,
 		.size = 0,
 	};
-	lite3_val *val;
-	int ret;
-	if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, NULL, key_data, lite3_type_sizes[LITE3_TYPE_OBJECT], &val)) < 0)
-		return ret;
-	size_t init_ofs = (size_t)((u8 *)val - buf);
-	if (out_ofs)
-		*out_ofs = init_ofs;
-	_lite3_init_impl(buf, init_ofs, LITE3_TYPE_OBJECT);
-	return ret;
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, NULL, key_data, LITE3_TYPE_OBJECT, lite3_node_cfg_default(), out_ofs);
 }
 
 int lite3_arr_set_arr_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, uint32_t index, size_t *restrict out_ofs)
 {
-	u32 size = ((struct node *)(buf + ofs))->size_kc >> LITE3_NODE_SIZE_SHIFT;
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+	u32 size = _lite3_array_size(buf, *inout_buflen, ofs, cfg);
 	if (LITE3_UNLIKELY(index > size)) {
 		LITE3_PRINT_ERROR("INVALID ARGUMENT: ARRAY INDEX %u OUT OF BOUNDS (size == %u)\n", index, size);
 		errno = EINVAL;
@@ -827,13 +1010,67 @@ int lite3_arr_set_arr_impl(unsigned char *buf, size_t *restrict inout_buflen, si
 		.hash = index,
 		.size = 0,
 	};
-	lite3_val *val;
-	int ret;
-	if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, NULL, key_data, lite3_type_sizes[LITE3_TYPE_ARRAY], &val)) < 0)
-		return ret;
-	size_t init_ofs = (size_t)((u8 *)val - buf);
-	if (out_ofs)
-		*out_ofs = init_ofs;
-	_lite3_init_impl(buf, init_ofs, LITE3_TYPE_ARRAY);
-	return ret;
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, NULL, key_data, LITE3_TYPE_ARRAY, lite3_node_cfg_default(), out_ofs);
+}
+
+int lite3_arr_append_obj_cfg_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, enum lite3_node_cfg_id cfg_id, size_t *restrict out_ofs)
+{
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+	u32 size = _lite3_array_size(buf, *inout_buflen, ofs, cfg);
+	lite3_key_data key_data = {
+		.hash = size,
+		.size = 0,
+	};
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, NULL, key_data, LITE3_TYPE_OBJECT, lite3_node_cfg_from_id(cfg_id), out_ofs);
+}
+
+int lite3_arr_append_arr_cfg_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, enum lite3_node_cfg_id cfg_id, size_t *restrict out_ofs)
+{
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+	u32 size = _lite3_array_size(buf, *inout_buflen, ofs, cfg);
+	lite3_key_data key_data = {
+		.hash = size,
+		.size = 0,
+	};
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, NULL, key_data, LITE3_TYPE_ARRAY, lite3_node_cfg_from_id(cfg_id), out_ofs);
+}
+
+int lite3_arr_set_obj_cfg_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, uint32_t index, enum lite3_node_cfg_id cfg_id, size_t *restrict out_ofs)
+{
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+	u32 size = _lite3_array_size(buf, *inout_buflen, ofs, cfg);
+	if (LITE3_UNLIKELY(index > size)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: ARRAY INDEX %u OUT OF BOUNDS (size == %u)\n", index, size);
+		errno = EINVAL;
+		return -1;
+	}
+	lite3_key_data key_data = {
+		.hash = index,
+		.size = 0,
+	};
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, NULL, key_data, LITE3_TYPE_OBJECT, lite3_node_cfg_from_id(cfg_id), out_ofs);
+}
+
+int lite3_arr_set_arr_cfg_impl(unsigned char *buf, size_t *restrict inout_buflen, size_t ofs, size_t bufsz, uint32_t index, enum lite3_node_cfg_id cfg_id, size_t *restrict out_ofs)
+{
+	const lite3_node_cfg *cfg;
+	if (_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0)
+		return -1;
+	u32 size = _lite3_array_size(buf, *inout_buflen, ofs, cfg);
+	if (LITE3_UNLIKELY(index > size)) {
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: ARRAY INDEX %u OUT OF BOUNDS (size == %u)\n", index, size);
+		errno = EINVAL;
+		return -1;
+	}
+	lite3_key_data key_data = {
+		.hash = index,
+		.size = 0,
+	};
+	return _lite3_set_node_value(buf, inout_buflen, ofs, bufsz, NULL, key_data, LITE3_TYPE_ARRAY, lite3_node_cfg_from_id(cfg_id), out_ofs);
 }

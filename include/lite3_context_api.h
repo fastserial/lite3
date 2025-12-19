@@ -692,7 +692,12 @@ static inline int _lite3_ctx_set_by_index(lite3_ctx *ctx, size_t ofs, uint32_t i
         int ret;
         if ((ret = _lite3_verify_arr_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
                 return ret;
-        uint32_t size = (*(uint32_t *)(ctx->buf + ofs + LITE3_NODE_SIZE_KC_OFFSET)) >> LITE3_NODE_SIZE_SHIFT;
+        const lite3_node_cfg *cfg;
+        if ((ret = _lite3_cfg_for_offset(ctx->buf, ctx->buflen, ofs, &cfg, NULL)) < 0)
+                return ret;
+        uint32_t size_kc = 0;
+        memcpy(&size_kc, ctx->buf + ofs + cfg->size_kc_offset, sizeof(size_kc));
+        uint32_t size = size_kc >> LITE3_NODE_SIZE_SHIFT;
         if (LITE3_UNLIKELY(index > size)) {
                 LITE3_PRINT_ERROR("INVALID ARGUMENT: ARRAY INDEX %u OUT OF BOUNDS (size == %u)\n", index, size);
                 errno = EINVAL;
@@ -718,7 +723,12 @@ static inline int _lite3_ctx_set_by_append(lite3_ctx *ctx, size_t ofs, size_t va
         int ret;
         if ((ret = _lite3_verify_arr_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
                 return ret;
-        uint32_t size = (*(uint32_t *)(ctx->buf + ofs + LITE3_NODE_SIZE_KC_OFFSET)) >> LITE3_NODE_SIZE_SHIFT;
+        const lite3_node_cfg *cfg;
+        if ((ret = _lite3_cfg_for_offset(ctx->buf, ctx->buflen, ofs, &cfg, NULL)) < 0)
+                return ret;
+        uint32_t size_kc = 0;
+        memcpy(&size_kc, ctx->buf + ofs + cfg->size_kc_offset, sizeof(size_kc));
+        uint32_t size = size_kc >> LITE3_NODE_SIZE_SHIFT;
         lite3_key_data key_data = {
                 .hash = size,
                 .size = 0,
@@ -1314,7 +1324,12 @@ static inline int lite3_ctx_count(
                 errno = EINVAL;
                 return -1;
         }
-        *out = (*(uint32_t *)(ctx->buf + ofs + LITE3_NODE_SIZE_KC_OFFSET)) >> LITE3_NODE_SIZE_SHIFT;
+        const lite3_node_cfg *cfg;
+        if ((ret = _lite3_cfg_for_offset(ctx->buf, ctx->buflen, ofs, &cfg, NULL)) < 0)
+                return ret;
+        uint32_t size_kc = 0;
+        memcpy(&size_kc, ctx->buf + ofs + cfg->size_kc_offset, sizeof(size_kc));
+        *out = size_kc >> LITE3_NODE_SIZE_SHIFT;
         return ret;
 }
 

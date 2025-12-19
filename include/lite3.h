@@ -306,56 +306,132 @@ Do not change this setting unless performance profiling shows real improvements 
 #define LITE3_NODE_ALIGNMENT_MASK       ((uintptr_t)(LITE3_NODE_ALIGNMENT - 1))
 #endif // DOXYGEN_IGNORE
 
+#define LITE3_CFG_KEYS_MAX_FROM_SIZE(_node_size) (((_node_size) - (3u * sizeof(uint32_t))) / (3u * sizeof(uint32_t)))
+#define LITE3_CFG_CHILD_COUNT_FROM_SIZE(_node_size) (LITE3_CFG_KEYS_MAX_FROM_SIZE(_node_size) + 1u)
+#define LITE3_LOG2_CEIL_U32(x) (32 - __builtin_clz((uint32_t)((x) - 1u)))
+#define LITE3_CFG_TREE_HEIGHT_FROM_SIZE(_node_size) \
+        ((int)((LITE3_LOG2_CEIL_U32(LITE3_BUF_SIZE_MAX / (_node_size)) + LITE3_LOG2_CEIL_U32(LITE3_CFG_CHILD_COUNT_FROM_SIZE(_node_size)) - 1) / \
+                LITE3_LOG2_CEIL_U32(LITE3_CFG_CHILD_COUNT_FROM_SIZE(_node_size))))
+#define LITE3_CFG_SIZE_KC_OFFSET_FROM_SIZE(_node_size) \
+        (sizeof(uint32_t) + LITE3_CFG_KEYS_MAX_FROM_SIZE(_node_size) * sizeof(uint32_t))
+
 /**
 B-tree node size setting
 
-Set to 96 bytes (1.5 cache lines) by default. For the vast majority of applications, this setting should never need changing.
-
-@note
-Changing this setting also requires changing other settings. See `struct node` inside `lite3.c` for more info.
+Lite³ now supports per-object node sizes selected from a fixed menu of layouts. The default remains 96 bytes (1.5 cache lines) with 7 keys per node.
+Other sizes trade message size for tree height. These configurations are encoded per object, preserving compatibility between objects with different branching factors.
 
 @important
-Do not change this setting unless performance profiling shows real improvements and you know what you are doing.
+Do not change the defaults unless performance profiling shows real improvements and you know what you are doing.
 */
-// #define LITE3_NODE_SIZE              48      // key_count: 0-3       LITE3_NODE_SIZE: 48 (0.75 cache lines)
-#define LITE3_NODE_SIZE              96      // key_count: 0-7       LITE3_NODE_SIZE: 96 (1.5 cache lines)
-// #define LITE3_NODE_SIZE              192     // key_count: 0-15      LITE3_NODE_SIZE: 192 (3 cache lines)
-// #define LITE3_NODE_SIZE              384     // key_count: 0-31      LITE3_NODE_SIZE: 384 (6 cache lines)
-// #define LITE3_NODE_SIZE              768     // key_count: 0-63      LITE3_NODE_SIZE: 768 (12 cache lines)
+#define LITE3_NODE_SIZE_DEFAULT            96      // default node size (derived layout for 96-byte nodes)
+#define LITE3_TREE_HEIGHT_MAX_DEFAULT      LITE3_CFG_TREE_HEIGHT_FROM_SIZE(LITE3_NODE_SIZE_DEFAULT)
+#define LITE3_NODE_SIZE_KC_OFFSET_DEFAULT  LITE3_CFG_SIZE_KC_OFFSET_FROM_SIZE(LITE3_NODE_SIZE_DEFAULT)
+
+// Legacy alias for the default configuration to preserve existing API surface.
+#define LITE3_NODE_SIZE                    LITE3_NODE_SIZE_DEFAULT
+#define LITE3_TREE_HEIGHT_MAX              LITE3_TREE_HEIGHT_MAX_DEFAULT
+#define LITE3_NODE_SIZE_KC_OFFSET          LITE3_NODE_SIZE_KC_OFFSET_DEFAULT
 
 /**
-Maximum B-tree height.
+Per-object node configuration identifiers.
 
-Limits the number of node traversals during a lookup.
-Can only be changed together with `LITE3_NODE_SIZE`.
-
-@note
-Changing this setting also requires changing other settings. See `struct node` inside `lite3.c` for more info.
+Each configuration defines the B-tree branching factor and node footprint.
 */
-// #define LITE3_TREE_HEIGHT_MAX           14      // key_count: 0-3       LITE3_NODE_SIZE: 48 (0.75 cache lines)
-#define LITE3_TREE_HEIGHT_MAX           9      // key_count: 0-7       LITE3_NODE_SIZE: 96 (1.5 cache lines)
-// #define LITE3_TREE_HEIGHT_MAX           7       // key_count: 0-15      LITE3_NODE_SIZE: 192 (3 cache lines)
-// #define LITE3_TREE_HEIGHT_MAX           5       // key_count: 0-31      LITE3_NODE_SIZE: 384 (6 cache lines)
-// #define LITE3_TREE_HEIGHT_MAX           4       // key_count: 0-63      LITE3_NODE_SIZE: 768 (12 cache lines)
+enum lite3_node_cfg_id {
+        LITE3_NODE_CFG_48,   ///< key_count: 0-3   node_size: 48 bytes (0.75 cache lines)
+        LITE3_NODE_CFG_96,   ///< key_count: 0-7   node_size: 96 bytes (1.5 cache lines)
+        LITE3_NODE_CFG_192,  ///< key_count: 0-15  node_size: 192 bytes (3 cache lines)
+        LITE3_NODE_CFG_384,  ///< key_count: 0-31  node_size: 384 bytes (6 cache lines)
+        LITE3_NODE_CFG_768,  ///< key_count: 0-63  node_size: 768 bytes (12 cache lines)
+        LITE3_NODE_CFG_COUNT
+};
+
+/// Default node configuration (96-byte nodes, 7 keys).
+#define LITE3_NODE_CFG_DEFAULT LITE3_NODE_CFG_96
 
 /**
-Offset of the `size_kc` field inside `struct node`.
-
-Can only be changed together with `LITE3_NODE_SIZE`.
-
-@note
-Changing this setting also requires changing other settings. See `struct node` inside `lite3.c` for more info.
+Struct describing a node layout for a single object/array.
 */
-// #define LITE3_NODE_SIZE_KC_OFFSET       16   // key_count: 0-3       LITE3_NODE_SIZE: 48 (0.75 cache lines)
-#define LITE3_NODE_SIZE_KC_OFFSET       32   // key_count: 0-7       LITE3_NODE_SIZE: 96 (1.5 cache lines)
-// #define LITE3_NODE_SIZE_KC_OFFSET       64   // key_count: 0-15      LITE3_NODE_SIZE: 192 (3 cache lines)
-// #define LITE3_NODE_SIZE_KC_OFFSET       128  // key_count: 0-31      LITE3_NODE_SIZE: 384 (6 cache lines)
-// #define LITE3_NODE_SIZE_KC_OFFSET       256  // key_count: 0-63      LITE3_NODE_SIZE: 768 (12 cache lines)
+typedef struct {
+        uint8_t  id;               ///< enum lite3_node_cfg_id
+        uint8_t  key_count_max;    ///< Maximum keys stored per node
+        uint8_t  key_count_min;    ///< Minimum keys stored after split/merge
+        uint8_t  child_count;      ///< key_count_max + 1
+        uint8_t  key_count_mask;   ///< Wrap mask for array indexing
+        uint8_t  tree_height_max;  ///< Maximum allowed tree height for this layout
+        uint16_t node_size;        ///< Total node size in bytes
+        uint16_t size_kc_offset;   ///< Offset of size_kc field inside the node
+} lite3_node_cfg;
 
 #ifndef DOXYGEN_IGNORE
-#define LITE3_NODE_SIZE_SHIFT 6
-#define LITE3_NODE_SIZE_MASK ((u32)~((1 << 6) - 1)) // 26 MSB
+#define LITE3_NODE_TYPE_BITS         8
+#define LITE3_NODE_KEY_COUNT_BITS    6
+#define LITE3_NODE_CFG_BITS          3
 
+#define LITE3_NODE_TYPE_MASK ((uint32_t)((1u << LITE3_NODE_TYPE_BITS) - 1u))
+#define LITE3_NODE_CFG_SHIFT (LITE3_NODE_TYPE_BITS)
+#define LITE3_NODE_CFG_MASK  ((uint32_t)(((1u << LITE3_NODE_CFG_BITS) - 1u) << LITE3_NODE_CFG_SHIFT))
+#define LITE3_NODE_GEN_SHIFT (LITE3_NODE_CFG_SHIFT + LITE3_NODE_CFG_BITS)
+#define LITE3_NODE_GEN_MASK  ((uint32_t)~((1u << LITE3_NODE_GEN_SHIFT) - 1u))
+
+#define LITE3_NODE_SIZE_SHIFT (LITE3_NODE_KEY_COUNT_BITS)
+#define LITE3_NODE_SIZE_MASK  ((uint32_t)~((1u << LITE3_NODE_SIZE_SHIFT) - 1u)) // upper 26 bits
+#define LITE3_NODE_KEY_COUNT_MASK ((uint32_t)((1u << LITE3_NODE_KEY_COUNT_BITS) - 1u))
+
+#define LITE3_CFG_ROW(_id, _node_size) \
+        [LITE3_NODE_CFG_##_id] = { \
+                .id = LITE3_NODE_CFG_##_id, \
+                .node_size = (_node_size), \
+                .key_count_max = LITE3_CFG_KEYS_MAX_FROM_SIZE(_node_size), \
+                .key_count_min = LITE3_CFG_KEYS_MAX_FROM_SIZE(_node_size) / 2, \
+                .child_count = LITE3_CFG_CHILD_COUNT_FROM_SIZE(_node_size), \
+                .key_count_mask = LITE3_CFG_KEYS_MAX_FROM_SIZE(_node_size), \
+                .tree_height_max = LITE3_CFG_TREE_HEIGHT_FROM_SIZE(_node_size), \
+                .size_kc_offset = LITE3_CFG_SIZE_KC_OFFSET_FROM_SIZE(_node_size), \
+        }
+
+static const lite3_node_cfg lite3_node_cfg_table[] = {
+        LITE3_CFG_ROW(48, 48),
+        LITE3_CFG_ROW(96, 96),
+        LITE3_CFG_ROW(192, 192),
+        LITE3_CFG_ROW(384, 384),
+        LITE3_CFG_ROW(768, 768),
+};
+#undef LITE3_CFG_ROW
+#undef LITE3_CFG_TREE_HEIGHT_FROM_SIZE
+#undef LITE3_LOG2_CEIL_U32
+#undef LITE3_CFG_SIZE_KC_OFFSET_FROM_SIZE
+#undef LITE3_CFG_CHILD_COUNT_FROM_SIZE
+#undef LITE3_CFG_KEYS_MAX_FROM_SIZE
+#define LITE3_TREE_HEIGHT_MAX_STATIC 14
+
+static inline int _lite3_cfg_for_offset(const unsigned char *buf, size_t buflen, size_t ofs, const lite3_node_cfg **out_cfg, uint32_t *out_gen_type);
+
+static inline const lite3_node_cfg *lite3_node_cfg_from_id(enum lite3_node_cfg_id id) {
+        if (id >= LITE3_NODE_CFG_COUNT)
+                return NULL;
+        return &lite3_node_cfg_table[id];
+}
+
+static inline const lite3_node_cfg *lite3_node_cfg_default(void) {
+        return &lite3_node_cfg_table[LITE3_NODE_CFG_DEFAULT];
+}
+
+static inline enum lite3_node_cfg_id lite3_node_cfg_best_for_keys(size_t key_count) {
+        if (key_count <= lite3_node_cfg_table[LITE3_NODE_CFG_48].key_count_max)
+                return LITE3_NODE_CFG_48;
+        if (key_count <= lite3_node_cfg_table[LITE3_NODE_CFG_96].key_count_max)
+                return LITE3_NODE_CFG_96;
+        if (key_count <= lite3_node_cfg_table[LITE3_NODE_CFG_192].key_count_max)
+                return LITE3_NODE_CFG_192;
+        if (key_count <= lite3_node_cfg_table[LITE3_NODE_CFG_384].key_count_max)
+                return LITE3_NODE_CFG_384;
+        return LITE3_NODE_CFG_768;
+}
+#endif // DOXYGEN_IGNORE
+
+#ifndef DOXYGEN_IGNORE
 #define LITE3_DJB2_HASH_SEED ((uint32_t)5381)
 #endif // DOXYGEN_IGNORE
 
@@ -720,6 +796,18 @@ int lite3_init_arr(
         size_t *__restrict out_buflen,  ///< [out] buffer used length
         size_t bufsz                    ///< [in] buffer max size
 );
+int lite3_init_obj_cfg(
+        unsigned char *buf,             ///< [in] buffer pointer
+        size_t *__restrict out_buflen,  ///< [out] buffer used length
+        size_t bufsz,                   ///< [in] buffer max size
+        enum lite3_node_cfg_id cfg_id   ///< [in] node configuration id
+);
+int lite3_init_arr_cfg(
+        unsigned char *buf,             ///< [in] buffer pointer
+        size_t *__restrict out_buflen,  ///< [out] buffer used length
+        size_t bufsz,                   ///< [in] buffer max size
+        enum lite3_node_cfg_id cfg_id   ///< [in] node configuration id
+);
 /// @} lite3_init
 
 
@@ -768,8 +856,11 @@ static inline int _lite3_verify_set(unsigned char *buf, size_t *__restrict inout
                 errno = EINVAL;
                 return -1;
         }
-        if (LITE3_UNLIKELY(LITE3_NODE_SIZE > *inout_buflen || ofs > *inout_buflen - LITE3_NODE_SIZE)) {
-                LITE3_PRINT_ERROR("INVALID ARGUMENT: START OFFSET OUT OF BOUNDS\n");
+        const lite3_node_cfg *cfg = NULL;
+        if (LITE3_UNLIKELY(_lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL) < 0))
+                return -1;
+        if (LITE3_UNLIKELY(bufsz < cfg->node_size)) {
+                LITE3_PRINT_ERROR("INVALID ARGUMENT: bufsz < node size\n");
                 errno = EINVAL;
                 return -1;
         }
@@ -1082,6 +1173,7 @@ Set object in object
 #ifndef DOXYGEN_IGNORE
 // Private function
 int lite3_set_obj_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs);
+int lite3_set_obj_cfg_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, enum lite3_node_cfg_id cfg_id, size_t *__restrict out_ofs);
 #endif // DOXYGEN_IGNORE
 
 /**
@@ -1123,6 +1215,7 @@ Set array in object
 #ifndef DOXYGEN_IGNORE
 // Private function
 int lite3_set_arr_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs);
+int lite3_set_arr_cfg_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, enum lite3_node_cfg_id cfg_id, size_t *__restrict out_ofs);
 #endif // DOXYGEN_IGNORE
 /// @} lite3_obj_set
 
@@ -1158,7 +1251,12 @@ static inline int _lite3_set_by_index(unsigned char *buf, size_t *__restrict ino
         int ret;
         if ((ret = _lite3_verify_arr_set(buf,  inout_buflen, ofs, bufsz)) < 0)
                 return ret;
-        uint32_t size = (*(uint32_t *)(buf + ofs + LITE3_NODE_SIZE_KC_OFFSET)) >> LITE3_NODE_SIZE_SHIFT;
+        const lite3_node_cfg *cfg;
+        if ((ret = _lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL)) < 0)
+                return ret;
+        uint32_t size_kc = 0;
+        memcpy(&size_kc, buf + ofs + cfg->size_kc_offset, sizeof(size_kc));
+        uint32_t size = size_kc >> LITE3_NODE_SIZE_SHIFT;
         if (LITE3_UNLIKELY(index > size)) {
                 LITE3_PRINT_ERROR("INVALID ARGUMENT: ARRAY INDEX %u OUT OF BOUNDS (size == %u)\n", index, size);
                 errno = EINVAL;
@@ -1176,7 +1274,12 @@ static inline int _lite3_set_by_append(unsigned char *buf, size_t *__restrict in
         int ret;
         if ((ret = _lite3_verify_arr_set(buf, inout_buflen, ofs, bufsz)) < 0)
                 return ret;
-        uint32_t size = (*(uint32_t *)(buf + ofs + LITE3_NODE_SIZE_KC_OFFSET)) >> LITE3_NODE_SIZE_SHIFT;
+        const lite3_node_cfg *cfg;
+        if ((ret = _lite3_cfg_for_offset(buf, *inout_buflen, ofs, &cfg, NULL)) < 0)
+                return ret;
+        uint32_t size_kc = 0;
+        memcpy(&size_kc, buf + ofs + cfg->size_kc_offset, sizeof(size_kc));
+        uint32_t size = size_kc >> LITE3_NODE_SIZE_SHIFT;
         lite3_key_data key_data = {
                 .hash = size,
                 .size = 0,
@@ -1361,6 +1464,7 @@ Append object to array
 #ifndef DOXYGEN_IGNORE
 // Private function
 int lite3_arr_append_obj_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, size_t *__restrict out_ofs);
+int lite3_arr_append_obj_cfg_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, enum lite3_node_cfg_id cfg_id, size_t *__restrict out_ofs);
 #endif // DOXYGEN_IGNORE
 
 static inline int lite3_arr_append_obj(
@@ -1386,6 +1490,7 @@ Append array to array
 #ifndef DOXYGEN_IGNORE
 // Private function
 int lite3_arr_append_arr_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, size_t *__restrict out_ofs);
+int lite3_arr_append_arr_cfg_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, enum lite3_node_cfg_id cfg_id, size_t *__restrict out_ofs);
 #endif // DOXYGEN_IGNORE
 
 static inline int lite3_arr_append_arr(
@@ -1618,6 +1723,7 @@ Set object in array
 #ifndef DOXYGEN_IGNORE
 // Private function
 int lite3_arr_set_obj_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, uint32_t index, size_t *__restrict out_ofs);
+int lite3_arr_set_obj_cfg_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, uint32_t index, enum lite3_node_cfg_id cfg_id, size_t *__restrict out_ofs);
 #endif // DOXYGEN_IGNORE
 
 static inline int lite3_arr_set_obj(
@@ -1644,6 +1750,7 @@ Set array in array
 #ifndef DOXYGEN_IGNORE
 // Private function
 int lite3_arr_set_arr_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, uint32_t index, size_t *__restrict out_ofs);
+int lite3_arr_set_arr_cfg_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, uint32_t index, enum lite3_node_cfg_id cfg_id, size_t *__restrict out_ofs);
 #endif // DOXYGEN_IGNORE
 
 static inline int lite3_arr_set_arr(
@@ -1678,20 +1785,47 @@ Read-only operations are thread-safe. This includes all utility funtions. Mixing
 @{
 */
 #ifndef DOXYGEN_IGNORE
+static inline int _lite3_cfg_for_offset(const unsigned char *buf, size_t buflen, size_t ofs, const lite3_node_cfg **out_cfg, uint32_t *out_gen_type)
+{
+        if (LITE3_UNLIKELY((ofs & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+                LITE3_PRINT_ERROR("INVALID ARGUMENT: START OFFSET NOT ALIGNED\n");
+                errno = EINVAL;
+                return -1;
+        }
+        if (LITE3_UNLIKELY(buflen < sizeof(uint32_t) || ofs > buflen - sizeof(uint32_t))) {
+                LITE3_PRINT_ERROR("INVALID ARGUMENT: START OFFSET OUT OF BOUNDS\n");
+                errno = EINVAL;
+                return -1;
+        }
+        uint32_t gen_type;
+        memcpy(&gen_type, buf + ofs, sizeof(gen_type));
+        enum lite3_node_cfg_id cfg_id = (enum lite3_node_cfg_id)((gen_type & LITE3_NODE_CFG_MASK) >> LITE3_NODE_CFG_SHIFT);
+        if (cfg_id >= LITE3_NODE_CFG_COUNT) {
+                LITE3_PRINT_ERROR("INVALID ARGUMENT: NODE CFG ID OUT OF RANGE\n");
+                errno = EBADMSG;
+                return -1;
+        }
+        const lite3_node_cfg *cfg = &lite3_node_cfg_table[cfg_id];
+        if (LITE3_UNLIKELY(buflen < ofs + cfg->node_size)) {
+                LITE3_PRINT_ERROR("INVALID ARGUMENT: START OFFSET OUT OF BOUNDS\n");
+                errno = EINVAL;
+                return -1;
+        }
+        if (out_cfg)
+                *out_cfg = cfg;
+        if (out_gen_type)
+                *out_gen_type = gen_type;
+        return 0;
+}
+
 static inline int _lite3_verify_get(const unsigned char *buf, size_t buflen, size_t ofs)
 {
-        (void)buf;
         if (LITE3_UNLIKELY(buflen > LITE3_BUF_SIZE_MAX)) {
                 LITE3_PRINT_ERROR("INVALID ARGUMENT: buflen > LITE3_BUF_SIZE_MAX\n");
                 errno = EINVAL;
                 return -1;
         }
-        if (LITE3_UNLIKELY(LITE3_NODE_SIZE > buflen || ofs > buflen - LITE3_NODE_SIZE)) {
-                LITE3_PRINT_ERROR("INVALID ARGUMENT: START OFFSET OUT OF BOUNDS\n");
-                errno = EINVAL;
-                return -1;
-        }
-        return 0;
+        return _lite3_cfg_for_offset(buf, buflen, ofs, NULL, NULL);
 }
 
 static inline int _lite3_verify_obj_get(const unsigned char *buf, size_t buflen, size_t ofs)
@@ -1726,7 +1860,12 @@ static inline int _lite3_get_by_index(const unsigned char *buf, size_t buflen, s
         int ret;
         if ((ret = _lite3_verify_arr_get(buf, buflen, ofs)) < 0)
                 return ret;
-        uint32_t size = (*(uint32_t *)(buf + ofs + LITE3_NODE_SIZE_KC_OFFSET)) >> LITE3_NODE_SIZE_SHIFT;
+        const lite3_node_cfg *cfg;
+        if ((ret = _lite3_cfg_for_offset(buf, buflen, ofs, &cfg, NULL)) < 0)
+                return ret;
+        uint32_t size_kc = 0;
+        memcpy(&size_kc, buf + ofs + cfg->size_kc_offset, sizeof(size_kc));
+        uint32_t size = size_kc >> LITE3_NODE_SIZE_SHIFT;
         if (LITE3_UNLIKELY(index >= size)) {
                 LITE3_PRINT_ERROR("INVALID ARGUMENT: ARRAY INDEX %u OUT OF BOUNDS (size == %u)\n", index, size);
                 errno = EINVAL;
@@ -1856,7 +1995,12 @@ static inline int lite3_count(
                 errno = EINVAL;
                 return -1;
         }
-        *out = (*(uint32_t *)(buf + ofs + LITE3_NODE_SIZE_KC_OFFSET)) >> LITE3_NODE_SIZE_SHIFT;
+        const lite3_node_cfg *cfg;
+        if ((ret = _lite3_cfg_for_offset(buf, buflen, ofs, &cfg, NULL)) < 0)
+                return ret;
+        uint32_t size_kc = 0;
+        memcpy(&size_kc, buf + ofs + cfg->size_kc_offset, sizeof(size_kc));
+        *out = size_kc >> LITE3_NODE_SIZE_SHIFT;
         return ret;
 }
 
@@ -2625,9 +2769,12 @@ The iterator struct is meant to be opaque, but is included in the header to supp
 */
 typedef struct {
         uint32_t gen;
-        uint32_t node_ofs[LITE3_TREE_HEIGHT_MAX + 1];
+        uint32_t node_ofs[LITE3_TREE_HEIGHT_MAX_STATIC + 1];
         uint8_t  depth;
-        uint8_t  node_i[LITE3_TREE_HEIGHT_MAX + 1];
+        uint8_t  node_i[LITE3_TREE_HEIGHT_MAX_STATIC + 1];
+        uint8_t  tree_height_max;
+        uint8_t  key_count_mask;
+        enum lite3_node_cfg_id cfg_id;
 } lite3_iter;
 
 #ifndef DOXYGEN_IGNORE
