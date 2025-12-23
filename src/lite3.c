@@ -698,10 +698,13 @@ key_match_skip:
 						errno = ENOBUFS;
 						return -1;
 					}
+					(void)key_start_ofs;						// silence unused variable warning
 					#ifdef LITE3_ZERO_MEM_DELETED
 						memset(buf + node->kv_ofs[i], LITE3_ZERO_MEM_8, target_ofs - key_start_ofs); // zero out key + value
 					#endif
-					(void)key_start_ofs;						// silence unused variable warning
+					#ifdef LITE3_ZERO_MEM_EXTRA
+						memset(buf + *inout_buflen, LITE3_ZERO_MEM_8, alignment_padding);
+					#endif
 					*inout_buflen += alignment_padding;
 					node->kv_ofs[i] = (u32)*inout_buflen;
 					goto insert_append;
@@ -753,6 +756,9 @@ key_match_skip:
 				node->hashes[i] = attempt_key.hash;
 				node->size_kc = (node->size_kc & ~LITE3_NODE_KEY_COUNT_MASK)
 				                  | ((node->size_kc + 1) & LITE3_NODE_KEY_COUNT_MASK);	// key_count++
+				#ifdef LITE3_ZERO_MEM_EXTRA
+					memset(buf + *inout_buflen, LITE3_ZERO_MEM_8, alignment_padding);
+				#endif
 				*inout_buflen += alignment_padding;
 				node->kv_ofs[i] = (u32)*inout_buflen;
 
