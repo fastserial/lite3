@@ -230,7 +230,7 @@ int lite3_get_impl(
 	} else if (*(buf + ofs) == LITE3_TYPE_ARRAY) {
 		LITE3_PRINT_DEBUG("GET\tindex: %u\n", key_data.hash);
 	} else {
-		LITE3_PRINT_DEBUG("GET INVALID: EXEPCTING ARRAY OR OBJECT TYPE\n");
+		LITE3_PRINT_DEBUG("GET INVALID: EXPECTING ARRAY OR OBJECT TYPE\n");
 	}
 	#endif
 
@@ -384,7 +384,7 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 
 	enum lite3_type type = node->gen_type & LITE3_NODE_TYPE_MASK;
 	if (LITE3_UNLIKELY(!(type == LITE3_TYPE_OBJECT || type == LITE3_TYPE_ARRAY))) {
-		LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING ARRAY ORlite3_iter_nex OBJECT TYPE\n");
+		LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING ARRAY OR OBJECT TYPE\n");
 		errno = EINVAL;
 		return -1;
 	}
@@ -530,7 +530,7 @@ int lite3_set_impl(
 	} else if (*(buf + ofs) == LITE3_TYPE_ARRAY) {
 		LITE3_PRINT_DEBUG("SET\tindex: %u\n", key_data.hash);
 	} else {
-		LITE3_PRINT_DEBUG("SET INVALID: EXEPCTING ARRAY OR OBJECT TYPE\n");
+		LITE3_PRINT_DEBUG("SET INVALID: EXPECTING ARRAY OR OBJECT TYPE\n");
 	}
 	#endif
 

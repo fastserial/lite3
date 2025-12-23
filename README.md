@@ -13,7 +13,7 @@ Lite³ is a zero-copy binary serialization format encoding data as a B-tree insi
 
 As a result, the serialization boundary has been broken: 'parsing' or 'serializing' in the traditional sense is no longer necessary. Lite³ structures can be read and mutated directly similar to hashmaps or binary trees, and since they exist in a single contiguous buffer, they always remain ready to send.
 
-Compared to other binary formats, Lite³ is schemaless, self-describing (no IDL or schema definitons required) and **supports conversion to/from JSON**, enabling compatibility with existing datasets/APIs and allowing for easy debugging/inspecting of messages.
+Compared to other binary formats, Lite³ is schemaless, self-describing (no IDL or schema definitions required) and **supports conversion to/from JSON**, enabling compatibility with existing datasets/APIs and allowing for easy debugging/inspecting of messages.
 
 Thanks to the cache-friendly properties of the B-tree and the very minimalistic C implementation (9.3 kB), Lite³ outperforms the fastest JSON libraries (that make use of SIMD) by up to 120x depending on the benchmark. It also outperforms schema-only formats, such as Google Flatbuffers (242x). Lite³ is possibly the fastest schemaless data format in the world.
 
@@ -30,7 +30,7 @@ However Lite³ blurs the line between memory and wire formats, allowing direct a
 
 
 ## Features
-- Schemaless & self-describing, no IDL or schema definitons required
+- Schemaless & self-describing, no IDL or schema definitions required
 - Zero-copy reads + writes of any data size
 - Lives on OSI layer 6 (transport/protocol agnostic)
 - O(log n) amortized time complexity for all IOPS
@@ -237,7 +237,7 @@ gcc -o main main.c -I/path/to/lite3/include /path/to/lite3/build/liblite3.a
 #### Choose your API
 The Buffer API provides the most control, utilizing caller-supplied buffers to support environments with custom allocation patterns, avoiding the use of `malloc()`.
 
-The Context API is a wrapper aound the Buffer API where memory allocations are hidden from the user, presenting a more accessible interface. If you are using Lite³ for the first time, it is recommmended to start with the Context API.
+The Context API is a wrapper around the Buffer API where memory allocations are hidden from the user, presenting a more accessible interface. If you are using Lite³ for the first time, it is recommended to start with the Context API.
 ```C
 #include "lite3.h"              // Buffer API
 #include "lite3_context_api.h"  // Context API
@@ -304,7 +304,7 @@ Remember that we judge the behavior of formats by their implementation rather th
 
 ## Benchmarks
 ### Simdjson Twitter API Data Benchmark
-This benchmark by the authors of [the official simdjson respository](https://github.com/simdjson/simdjson)
+This benchmark by the authors of [the official simdjson repository](https://github.com/simdjson/simdjson)
 was created to compare JSON parsing performance for different C/C++ libraries.
 
 An input dataset `twitter.json` is used, consisting ~632 kB of real twitter API data to perform a number of tasks, each having its own category:

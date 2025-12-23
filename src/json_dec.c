@@ -83,7 +83,7 @@ int _lite3_json_dec_obj_switch(unsigned char *buf, size_t *restrict inout_buflen
                                         return ret;
                                 break;
                         } else {
-                                if ((ret = lite3_set_f64(buf, inout_buflen, ofs, bufsz, key, (double)num_u64)) < 0) // Number to big for (signed) int64_t, fall back to double
+                                if ((ret = lite3_set_f64(buf, inout_buflen, ofs, bufsz, key, (double)num_u64)) < 0) // Number too big for (signed) int64_t, fall back to double
                                         return ret;
                                 break;
                         }
@@ -165,7 +165,7 @@ int _lite3_json_dec_arr_switch(unsigned char *buf, size_t *restrict inout_buflen
                                         return ret;
                                 break;
                         } else {
-                                if ((ret = lite3_arr_append_f64(buf, inout_buflen, ofs, bufsz, (double)num_u64)) < 0) // Number to big for (signed) int64_t, fall back to double
+                                if ((ret = lite3_arr_append_f64(buf, inout_buflen, ofs, bufsz, (double)num_u64)) < 0) // Number too big for (signed) int64_t, fall back to double
                                         return ret;
                                 break;
                         }

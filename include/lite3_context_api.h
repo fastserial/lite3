@@ -188,7 +188,7 @@ lite3_ctx *lite3_ctx_create_from_buf(
 Create context by taking ownership of a buffer
 
 When you have an existing allocation containing a Lite³ message,
-you might want a context to to take ownership over it rather than copying all the data.
+you might want a context to take ownership over it rather than copying all the data.
 The passed buffer will also be freed when you call `lite3_ctx_destroy()` on the context later.
 
 @warning
@@ -1185,7 +1185,7 @@ Utility functions
 The `ofs` (offset) field is used to target an object or array inside the Lite³ buffer. To target the root-level object/array, use `ofs == 0`.
 
 @warning
-Read-only operations are thread-safe. This includes all utility funtions. Mixing reads and writes however is not thread-safe.
+Read-only operations are thread-safe. This includes all utility functions. Mixing reads and writes however is not thread-safe.
 
 @defgroup lite3_ctx_utility Utility Functions
 @ingroup lite3_context_api
@@ -1539,7 +1539,7 @@ The `ofs` (offset) field is used to target an object or array inside the Lite³ 
 - Returns < 0 on error
 
 @warning
-Read-only operations are thread-safe. This includes all `lite3_get_xxx()` funtions. Mixing reads and writes however is not thread-safe.
+Read-only operations are thread-safe. This includes all `lite3_get_xxx()` functions. Mixing reads and writes however is not thread-safe.
 
 @defgroup lite3_ctx_get Object Get
 @ingroup lite3_context_api
@@ -1832,7 +1832,7 @@ The `ofs` (offset) field is used to target an object or array inside the Lite³ 
 - Returns < 0 on error
 
 @warning
-Read-only operations are thread-safe. This includes all `lite3_arr_get_xxx()` funtions. Mixing reads and writes however is not thread-safe.
+Read-only operations are thread-safe. This includes all `lite3_arr_get_xxx()` functions. Mixing reads and writes however is not thread-safe.
 
 @defgroup lite3_ctx_arr_get Array Get
 @ingroup lite3_context_api
@@ -2033,7 +2033,7 @@ Create and use iterators for objects/arrays
 The `ofs` (offset) field is used to target an object or array inside the Lite³ buffer. To target the root-level object/array, use `ofs == 0`.
 
 @warning
-Read-only operations are thread-safe. This includes all iterator funtions. Mixing reads and writes however is not thread-safe.
+Read-only operations are thread-safe. This includes all iterator functions. Mixing reads and writes however is not thread-safe.
 
 @defgroup lite3_ctx_iter Iterators
 @ingroup lite3_context_api
@@ -2066,7 +2066,7 @@ static inline int lite3_ctx_iter_create(
 /**
 Get the next item from a lite3 iterator
 
-To use in conjunctions with @ref lite3_val_fns, the `*out_val_ofs` can be casted to `(lite3_val *)`.
+To use in conjunctions with @ref lite3_val_fns, the `*out_val_ofs` can be cast to `(lite3_val *)`.
 
 @return `LITE3_ITER_ITEM` (== 1) on item produced
 @return `LITE3_ITER_DONE` (== 0) on success (no more items)
@@ -2112,7 +2112,7 @@ This feature requires subdependencies enabled via build flags. See the `Makefile
 Also `LITE3_JSON` must be defined inside the `lite3.h` header or using compiler `-D` flags. See @ref lite3_config.
 
 @warning
-Read-only operations are thread-safe. This includes all JSON encode funtions.
+Read-only operations are thread-safe. This includes all JSON encode functions.
 Decoding JSON however is not thread-safe for the given Lite³ buffer and requires manual locking.
 Mixing reads and writes on the same Lite³ buffer is also not thread-safe.
 

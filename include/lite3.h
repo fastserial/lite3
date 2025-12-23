@@ -147,7 +147,7 @@ Enabled by default.
 This is a safety feature since not doing so would leave 'deleted' entries intact inside the datastructure until they are overwritten by other values.
 Disable if you do not care about leaking deleted data.
 
-@note When following canoncial encoding rules, features `LITE3_ZERO_MEM_DELETED` and `LITE3_ZERO_MEM_EXTRA` are required.
+@note When following canonical encoding rules, features `LITE3_ZERO_MEM_DELETED` and `LITE3_ZERO_MEM_EXTRA` are required.
 */
 #define LITE3_ZERO_MEM_DELETED
 
@@ -164,7 +164,7 @@ This is a safety feature to prevent leaking uninitialized memory bytes into mess
 It is also useful for debugging, as it makes the structure a lot more readable.
 If you plan to use compression, this option makes Lite³ structures achieve better compression ratios.
 
-@note When following canoncial encoding rules, features `LITE3_ZERO_MEM_DELETED` and `LITE3_ZERO_MEM_EXTRA` are required.
+@note When following canonical encoding rules, features `LITE3_ZERO_MEM_DELETED` and `LITE3_ZERO_MEM_EXTRA` are required.
 */
 #define LITE3_ZERO_MEM_EXTRA
 
@@ -632,7 +632,7 @@ Generational pointer / safe access wrapper
 
 Every Lite³ buffer stores a generation count which is incremented on every mutation.
 lite3_bytes accessed through the LITE3_BYTES() macro will return a direct pointer if `lite3_bytes.gen` matches the generation count of the buffer.
-Othewise, it returns NULL.
+Otherwise, it returns NULL.
 
 When a Lite³ structure is modified via `set()` or `delete()`, pointed to data could be moved or deleted;
 therefore it is no longer safe to dereference previously obtained pointers. This macro prevents dangerous situations with dangling pointers.
@@ -661,7 +661,7 @@ Generational pointer / safe access wrapper
 
 Every Lite³ buffer stores a generation count which is incremented on every mutation.
 lite3_str accessed through the LITE3_STR() macro will return a direct pointer if `lite3_str.gen` matches the generation count of the buffer.
-Othewise, it returns NULL.
+Otherwise, it returns NULL.
 
 When a Lite³ structure is modified via `set()` or `delete()`, pointed to data could be moved or deleted;
 therefore it is no longer safe to dereference previously obtained pointers. This macro prevents dangerous situations with dangling pointers.
@@ -1689,7 +1689,7 @@ Get functions read `buflen` to know the currently used portion of the buffer.
 The `ofs` (offset) field is used to target an object or array inside the Lite³ buffer. To target the root-level object/array, use `ofs == 0`.
 
 @warning
-Read-only operations are thread-safe. This includes all utility funtions. Mixing reads and writes however is not thread-safe.
+Read-only operations are thread-safe. This includes all utility functions. Mixing reads and writes however is not thread-safe.
 
 @defgroup lite3_utility Utility Functions
 @ingroup lite3_buffer_api
@@ -2109,7 +2109,7 @@ The `ofs` (offset) field is used to target an object or array inside the Lite³ 
 - Returns < 0 on error
 
 @warning
-Read-only operations are thread-safe. This includes all `lite3_get_xxx()` funtions. Mixing reads and writes however is not thread-safe.
+Read-only operations are thread-safe. This includes all `lite3_get_xxx()` functions. Mixing reads and writes however is not thread-safe.
 
 @defgroup lite3_get Object Get
 @ingroup lite3_buffer_api
@@ -2413,7 +2413,7 @@ The `ofs` (offset) field is used to target an object or array inside the Lite³ 
 - Returns < 0 on error
 
 @warning
-Read-only operations are thread-safe. This includes all `lite3_arr_get_xxx()` funtions. Mixing reads and writes however is not thread-safe.
+Read-only operations are thread-safe. This includes all `lite3_arr_get_xxx()` functions. Mixing reads and writes however is not thread-safe.
 
 @defgroup lite3_arr_get Array Get
 @ingroup lite3_buffer_api
@@ -2623,7 +2623,7 @@ Iter functions read `buflen` to know the currently used portion of the buffer.
 The `ofs` (offset) field is used to target an object or array inside the Lite³ buffer. To target the root-level object/array, use `ofs == 0`.
 
 @warning
-Read-only operations are thread-safe. This includes all iterator funtions. Mixing reads and writes however is not thread-safe.
+Read-only operations are thread-safe. This includes all iterator functions. Mixing reads and writes however is not thread-safe.
 
 @defgroup lite3_iter Iterators
 @ingroup lite3_buffer_api
@@ -2674,7 +2674,7 @@ static inline int lite3_iter_create(
 /**
 Get the next item from a lite3 iterator
 
-To use in conjunctions with @ref lite3_val_fns, the `*out_val_ofs` can be casted to `(lite3_val *)`.
+To use in conjunctions with @ref lite3_val_fns, the `*out_val_ofs` can be cast to `(lite3_val *)`.
 
 @return `LITE3_ITER_ITEM` (== 1) on item produced
 @return `LITE3_ITER_DONE` (== 0) on success (no more items)
@@ -2770,7 +2770,7 @@ static inline const char *lite3_val_str(lite3_val *val)
 
 /**
 @warning
-`*out_len` is exclusive of the  NULL-terminator.
+`*out_len` is exclusive of the NULL-terminator.
 */
 static inline const char *lite3_val_str_n(lite3_val *val, size_t *out_len)
 {
@@ -2814,7 +2814,7 @@ This feature requires subdependencies enabled via build flags. See the `Makefile
 Also `LITE3_JSON` must be defined inside the `lite3.h` header or using compiler `-D` flags. See @ref lite3_config.
 
 @warning
-Read-only operations are thread-safe. This includes all JSON encode funtions.
+Read-only operations are thread-safe. This includes all JSON encode functions.
 Decoding JSON however is not thread-safe for the given Lite³ buffer and requires manual locking.
 Mixing reads and writes on the same Lite³ buffer is also not thread-safe.
 
