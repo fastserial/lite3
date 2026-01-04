@@ -1229,6 +1229,30 @@ static inline enum lite3_type _lite3_ctx_get_type_impl(lite3_ctx *ctx, size_t of
 #endif // DOXYGEN_IGNORE
 
 /**
+Find array value by index and return type
+
+@param[in]      ctx (`lite3_ctx *`) context pointer
+@param[in]      ofs (`size_t`) start offset (0 == root)
+@param[in]      index (`uint32_t`) array index
+@return lite3_type on success
+@return `LITE3_TYPE_INVALID` on error (index out of bounds)
+*/
+#define lite3_ctx_arr_get_type(ctx, ofs, index) ({ \
+        _lite3_ctx_arr_get_type_impl(ctx, ofs, index); \
+})
+#ifndef DOXYGEN_IGNORE
+static inline enum lite3_type _lite3_ctx_arr_get_type_impl(
+        lite3_ctx *ctx,         ///< [in] context pointer
+        size_t ofs,             ///< [in] start offset (0 == root)
+        uint32_t index)         ///< [in] array index {
+{
+        if (_lite3_verify_arr_get(ctx->buf, ctx->buflen, ofs) < 0)
+                return LITE3_TYPE_INVALID;
+        return lite3_arr_get_type(ctx->buf, ctx->buflen, ofs, index);
+}
+#endif // DOXYGEN_IGNORE
+
+/**
 Find value by key and write back type size
 
 @param[in]      ctx (`lite3_ctx *`) context pointer

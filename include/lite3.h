@@ -1759,6 +1759,31 @@ static inline enum lite3_type _lite3_get_type_impl(const unsigned char *buf, siz
 #endif // DOXYGEN_IGNORE
 
 /**
+Find value by index and return value type
+
+@param[in]      buf (`const unsigned char *`) buffer pointer
+@param[in]      buflen (`size_t`) buffer used length
+@param[in]      ofs (`size_t`) start offset (0 == root)
+@param[in]      index (`uint32_t`) array index
+@return lite3_type on success
+@return `LITE3_TYPE_INVALID` on error (index out of bounds)
+*/
+#define lite3_arr_get_type(buf, buflen, ofs, index) ({ \
+        _lite3_get_arr_type_impl(buf, buflen, ofs, index); \
+})
+#ifndef DOXYGEN_IGNORE
+static inline enum lite3_type _lite3_get_arr_type_impl(const unsigned char *buf, size_t buflen, size_t ofs, uint32_t index)
+{
+        if (_lite3_verify_arr_get(buf, buflen, ofs) < 0)
+                return LITE3_TYPE_INVALID;
+        lite3_val *val;
+        if (_lite3_get_by_index(buf, buflen, ofs, index, &val) < 0)
+                return LITE3_TYPE_INVALID;
+        return (enum lite3_type) val->type;
+}
+#endif // DOXYGEN_IGNORE
+
+/**
 Find value by key and write back type size
 
 @param[in]      buf (`const unsigned char *`) buffer pointer
