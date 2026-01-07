@@ -90,25 +90,25 @@ int main() {
         lite3_ctx *ctx = lite3_ctx_create();
         
         // Build message
-        lite3_ctx_init_obj(ctx)
-        lite3_ctx_set_str(ctx, 0, "event", "http_request")
-        lite3_ctx_set_str(ctx, 0, "method", "POST")
-        lite3_ctx_set_i64(ctx, 0, "duration_ms", 47)
+        lite3_ctx_init_obj(ctx);
+        lite3_ctx_set_str(ctx, 0, "event", "http_request");
+        lite3_ctx_set_str(ctx, 0, "method", "POST");
+        lite3_ctx_set_i64(ctx, 0, "duration_ms", 47);
 
         // Set headers
         size_t headers_ofs;
-        lite3_ctx_set_obj(ctx, 0, "headers", &headers_ofs)
-        lite3_ctx_set_str(ctx, headers_ofs, "content-type", "application/json")
-        lite3_ctx_set_str(ctx, headers_ofs, "x-request-id", "req_9f8e2a")
-        lite3_ctx_set_str(ctx, headers_ofs, "user-agent", "curl/8.1.2")
+        lite3_ctx_set_obj(ctx, 0, "headers", &headers_ofs);
+        lite3_ctx_set_str(ctx, headers_ofs, "content-type", "application/json");
+        lite3_ctx_set_str(ctx, headers_ofs, "x-request-id", "req_9f8e2a");
+        lite3_ctx_set_str(ctx, headers_ofs, "user-agent", "curl/8.1.2");
 
-        lite3_ctx_json_print(ctx, 0) // Print Lite³ as JSON
+        lite3_ctx_json_print(ctx, 0); // Print Lite³ as JSON
 
         // Get user-agent
         lite3_str user_agent;
         size_t ofs;
-        lite3_ctx_get_obj(ctx, 0, "headers", &ofs)
-        lite3_ctx_get_str(ctx, ofs, "user-agent", &user_agent)
+        lite3_ctx_get_obj(ctx, 0, "headers", &ofs);
+        lite3_ctx_get_str(ctx, ofs, "user-agent", &user_agent);
         printf("User agent: %s\n", LITE3_STR(ctx->buf, user_agent));
 
         lite3_ctx_destroy(ctx);
