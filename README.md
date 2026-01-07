@@ -235,7 +235,7 @@ For learning how to use Lite³, it is recommended to follow the [How-to Guide se
 | Smile                         | ✅            | ❌                   | ❌                    | ⚠️ (convertable to JSON)  |
 | Ion (Amazon)                  | ✅            | ❌                   | ❌                    | ⚠️ (convertable to JSON)  |
 | Protobuf (Google)             | ❌            | ❌                   | ❌                    | ❌[^4]                    |
-| Apache Arrow (based on Flatb.)| ❌            | ✅ O(1)              | ❌ (immutable)        | ❌                        |
+| Apache Arrow                  | ❌            | ✅ O(1)              | ❌ (immutable)        | ❌                        |
 | Flatbuffers (Google)          | ❌            | ✅ O(1)              | ❌ (immutable)        | ❌                        |
 | Flexbuffers (Google)          | ✅            | ✅[^5]               | ❌ (immutable)        | ⚠️ (convertable to JSON)  |
 | Cap'n Proto (Cloudflare)      | ❌            | ✅ O(1)              | ⚠️ (in-place only)    | ❌                        |
@@ -249,7 +249,7 @@ For learning how to use Lite³, it is recommended to follow the [How-to Guide se
 [^2]: Zero-copy writes: The ability to perform arbitrary mutations inside the structure without deserializing or parsing it first.
 [^3]: To be considered human-readable, all necessary information must be provided in-band (no outside schema).
 [^4]: Protobuf can optionally send messages in 'ProtoJSON' format for debugging, but in production systems they are still sent as binary and not inspectable without schema. Other binary formats also support similar features, however we do not consider these formats 'human-readable' since they rely on out-of-band information.
-[^5]: Flexbuffer access to scalars and vectors is `O(1)` (ints, floats, etc.). For maps, access is `O(log n)`.
+[^5]: Flexbuffers access to scalars and vectors is `O(1)` (ints, floats, etc.). For maps, access is `O(log n)`.
 
 Remember that we judge the behavior of formats by their implementation rather than by their official spec. This is because we cannot judge the behavior of hypothetical non-existent implementations.
 
@@ -414,10 +414,9 @@ To quit the mailing list, simply mail `devlist-unsubscribe@fastserial.com`
 
 ## Credit
 This project was inspired by a paper published in 2024 as *Lite²*:
-> Tianyi Chen †, Xiaotong Guan †, Shi Shuai †, Cuiting Huang † and Michal Aibin †  
-(2024).  
-Lite²: A Schemaless Zero-Copy Serialization Format  
-https://doi.org/10.3390/computers13040089
+> Tianyi Chen †, Xiaotong Guan †, Shi Shuai †, Cuiting Huang † and Michal Aibin † (2024).  
+> Lite²: A Schemaless Zero-Copy Serialization Format  
+> https://doi.org/10.3390/computers13040089
 
 A serialization format is described where all entries are organized as key-value pairs inside of a B-tree. The paper authors got their idea from SQL databases. They noticed how it is possible to insert arbitrary keys, therefore being schemaless. Also, performing a key lookup can be done without loading the entire DB in memory, thus being zero-copy.
 
