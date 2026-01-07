@@ -766,13 +766,18 @@ static inline int _lite3_verify_set(unsigned char *buf, size_t *__restrict inout
         return 0;
 }
 
-static inline int _lite3_verify_obj_set(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz)
+static inline int _lite3_verify_obj_set(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key)
 {
         int ret;
         if ((ret = _lite3_verify_set(buf, inout_buflen, ofs, bufsz)) < 0)
                 return ret;
         if (LITE3_UNLIKELY(*(buf + ofs) != LITE3_TYPE_OBJECT)) {
                 LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING OBJECT TYPE\n");
+                errno = EINVAL;
+                return -1;
+        }
+        if (LITE3_UNLIKELY(!key)) {
+                LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING NON-NULL KEY\n");
                 errno = EINVAL;
                 return -1;
         }
@@ -816,7 +821,7 @@ Set null in object
 static inline int _lite3_set_null_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, key, key_data, lite3_type_sizes[LITE3_TYPE_NULL], &val)) < 0)
@@ -847,7 +852,7 @@ Set boolean in object
 static inline int _lite3_set_bool_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, bool value)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, key, key_data, lite3_type_sizes[LITE3_TYPE_BOOL], &val)) < 0)
@@ -879,7 +884,7 @@ Set integer in object
 static inline int _lite3_set_i64_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, int64_t value)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, key, key_data, lite3_type_sizes[LITE3_TYPE_I64], &val)) < 0)
@@ -911,7 +916,7 @@ Set floating point in object
 static inline int _lite3_set_f64_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, double value)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, key, key_data, lite3_type_sizes[LITE3_TYPE_F64], &val)) < 0)
@@ -944,7 +949,7 @@ Set bytes in object
 static inline int _lite3_set_bytes_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, const unsigned char *__restrict bytes, size_t bytes_len)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_set_impl(buf, inout_buflen, ofs, bufsz, key, key_data, lite3_type_sizes[LITE3_TYPE_BYTES] + bytes_len, &val)) < 0)
@@ -981,7 +986,7 @@ If you know the length beforehand, it is more efficient to call `lite3_set_str_n
 static inline int _lite3_set_str_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, const char *__restrict str)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         size_t str_size = strlen(str) + 1;
@@ -1019,7 +1024,7 @@ Set string in object by length
 static inline int _lite3_set_str_n_impl(unsigned char *buf, size_t *__restrict inout_buflen, size_t ofs, size_t bufsz, const char *__restrict key, lite3_key_data key_data, const char *__restrict str, size_t str_len)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(buf, inout_buflen, ofs, bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         size_t str_size = str_len + 1;
@@ -1051,15 +1056,16 @@ Set object in object
         size_t *__lite3_inout_buflen__ = (inout_buflen); \
         size_t __lite3_ofs__ = (ofs); \
         size_t __lite3_bufsz__ = (bufsz); \
+        const char *__lite3_key__ = (key); \
         int __lite3_ret__; \
         if ((__lite3_ret__ = _lite3_verify_obj_set( \
                 __lite3_buf__, \
                 __lite3_inout_buflen__, \
                 __lite3_ofs__, \
-                __lite3_bufsz__)) < 0) \
+                __lite3_bufsz__, \
+                __lite3_key__)) < 0) \
                 return __lite3_ret__; \
         \
-        const char *__lite3_key__ = (key); \
         lite3_set_obj_impl( \
                 __lite3_buf__, \
                 __lite3_inout_buflen__, \
@@ -1092,15 +1098,16 @@ Set array in object
         size_t *__lite3_inout_buflen__ = (inout_buflen); \
         size_t __lite3_ofs__ = (ofs); \
         size_t __lite3_bufsz__ = (bufsz); \
+        const char *__lite3_key__ = (key); \
         int __lite3_ret__; \
         if ((__lite3_ret__ = _lite3_verify_obj_set( \
                 __lite3_buf__, \
                 __lite3_inout_buflen__, \
                 __lite3_ofs__, \
-                __lite3_bufsz__)) < 0) \
+                __lite3_bufsz__, \
+                __lite3_key__)) < 0) \
                 return __lite3_ret__; \
         \
-        const char *__lite3_key__ = (key); \
         lite3_set_arr_impl( \
                 __lite3_buf__, \
                 __lite3_inout_buflen__, \
@@ -1684,12 +1691,17 @@ static inline int _lite3_verify_get(const unsigned char *buf, size_t buflen, siz
         return 0;
 }
 
-static inline int _lite3_verify_obj_get(const unsigned char *buf, size_t buflen, size_t ofs)
+static inline int _lite3_verify_obj_get(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key)
 {
         if (_lite3_verify_get(buf, buflen, ofs) < 0)
                 return -1;
         if (LITE3_UNLIKELY(*(buf + ofs) != LITE3_TYPE_OBJECT)) {
                 LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING OBJECT TYPE\n");
+                errno = EINVAL;
+                return -1;
+        }
+        if (LITE3_UNLIKELY(!key)) {
+                LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING NON-NULL KEY\n");
                 errno = EINVAL;
                 return -1;
         }
@@ -1731,6 +1743,22 @@ static inline int _lite3_get_by_index(const unsigned char *buf, size_t buflen, s
 #endif // DOXYGEN_IGNORE
 
 /**
+Get the root type of a Lite³ buffer
+
+@param[in]      buf (`const unsigned char *`) buffer pointer
+@param[in]      buflen (`size_t`) buffer used length
+
+@return `lite3_type` on success (`LITE3_TYPE_OBJECT` or `LITE3_TYPE_ARRAY`)
+@return `LITE3_TYPE_INVALID` on error (empty or invalid buffer)
+*/
+static inline enum lite3_type lite3_get_root_type(const unsigned char *buf, size_t buflen)
+{
+        if (_lite3_verify_get(buf, buflen, 0) < 0)
+                return LITE3_TYPE_INVALID;
+        return (enum lite3_type)(*buf);
+}
+
+/**
 Find value by key and return value type
 
 @param[in]      buf (`const unsigned char *`) buffer pointer
@@ -1738,7 +1766,7 @@ Find value by key and return value type
 @param[in]      ofs (`size_t`) start offset (0 == root)
 @param[in]      key (`const char *`) key
 
-@return lite3_type on success
+@return `lite3_type` on success
 @return `LITE3_TYPE_INVALID` on error (key cannot be found)
 */
 #define lite3_get_type(buf, buflen, ofs, key) ({ \
@@ -1748,15 +1776,35 @@ Find value by key and return value type
 #ifndef DOXYGEN_IGNORE
 static inline enum lite3_type _lite3_get_type_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return LITE3_TYPE_INVALID;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
                 return LITE3_TYPE_INVALID;
-        enum lite3_type type = (enum lite3_type)val->type;
-        return type;
+        return (enum lite3_type)val->type;
 }
 #endif // DOXYGEN_IGNORE
+
+/**
+Find value by index and return value type
+
+@param[in]      buf (`const unsigned char *`) buffer pointer
+@param[in]      buflen (`size_t`) buffer used length
+@param[in]      ofs (`size_t`) start offset (0 == root)
+@param[in]      index (`uint32_t`) array index
+
+@return `lite3_type` on success
+@return `LITE3_TYPE_INVALID` on error (index out of bounds)
+*/
+static inline enum lite3_type lite3_arr_get_type(const unsigned char *buf, size_t buflen, size_t ofs, uint32_t index)
+{
+        if (_lite3_verify_arr_get(buf, buflen, ofs) < 0)
+                return LITE3_TYPE_INVALID;
+        lite3_val *val;
+        if (_lite3_get_by_index(buf, buflen, ofs, index, &val) < 0)
+                return LITE3_TYPE_INVALID;
+        return (enum lite3_type)val->type;
+}
 
 /**
 Find value by key and write back type size
@@ -1781,7 +1829,7 @@ For variable sized types like `LITE3_TYPE_BYTES` or `LITE3_TYPE_STRING`, the num
 static inline int _lite3_get_type_size_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs)) < 0)
+        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_get_impl(buf, buflen, ofs, key, key_data, &val)) < 0)
@@ -1814,7 +1862,7 @@ Attempt to find a key
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_exists_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -1868,7 +1916,7 @@ Find value by key and test for null type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_null_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -1895,7 +1943,7 @@ Find value by key and test for bool type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_bool_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -1922,7 +1970,7 @@ Find value by key and test for integer type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_i64_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -1949,7 +1997,7 @@ Find value by key and test for floating point type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_f64_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -1976,7 +2024,7 @@ Find value by key and test for bytes type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_bytes_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -2003,7 +2051,7 @@ Find value by key and test for string type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_str_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -2030,7 +2078,7 @@ Find value by key and test for object type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_obj_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -2057,7 +2105,7 @@ Find value by key and test for array type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_is_arr_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(buf, buflen, ofs) < 0)
+        if (_lite3_verify_obj_get(buf, buflen, ofs, key) < 0)
                 return false;
         lite3_val *val;
         if (lite3_get_impl(buf, buflen, ofs, key, key_data, &val) < 0)
@@ -2134,7 +2182,7 @@ Get boolean value by key
 static inline int _lite3_get_bool_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, bool *out)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs)) < 0)
+        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_get_impl(buf, buflen, ofs, key, key_data, &val)) < 0)
@@ -2169,7 +2217,7 @@ Get integer value by key
 static inline int _lite3_get_i64_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, int64_t *out)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs)) < 0)
+        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_get_impl(buf, buflen, ofs, key, key_data, &val)) < 0)
@@ -2204,7 +2252,7 @@ Get floating point value by key
 static inline int _lite3_get_f64_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, double *out)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs)) < 0)
+        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_get_impl(buf, buflen, ofs, key, key_data, &val)) < 0)
@@ -2239,7 +2287,7 @@ Get bytes value by key
 static inline int _lite3_get_bytes_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, lite3_bytes *out)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs)) < 0)
+        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_get_impl(buf, buflen, ofs, key, key_data, &val)) < 0)
@@ -2279,7 +2327,7 @@ Get string value by key
 static inline int _lite3_get_str_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, lite3_str *out)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs)) < 0)
+        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_get_impl(buf, buflen, ofs, key, key_data, &val)) < 0)
@@ -2320,7 +2368,7 @@ Get object by key
 static inline int _lite3_get_obj_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs)) < 0)
+        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_get_impl(buf, buflen, ofs, key, key_data, &val)) < 0)
@@ -2355,7 +2403,7 @@ Get array by key
 static inline int _lite3_get_arr_impl(const unsigned char *buf, size_t buflen, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs)) < 0)
+        if ((ret = _lite3_verify_obj_get(buf, buflen, ofs, key)) < 0)
                 return ret;
         lite3_val *val;
         if ((ret = lite3_get_impl(buf, buflen, ofs, key, key_data, &val)) < 0)

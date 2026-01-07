@@ -334,7 +334,7 @@ Set null in object
 static inline int lite3_ctx_set_null_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         errno = 0;
@@ -369,7 +369,7 @@ Set boolean in object
 static inline int _lite3_ctx_set_bool_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, bool value)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         errno = 0;
@@ -405,7 +405,7 @@ Set integer in object
 static inline int _lite3_ctx_set_i64_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, int64_t value)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         errno = 0;
@@ -441,7 +441,7 @@ Set floating point in object
 static inline int _lite3_ctx_set_f64_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, double value)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         errno = 0;
@@ -478,7 +478,7 @@ Set bytes in object
 static inline int _lite3_ctx_set_bytes_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, const unsigned char *__restrict bytes, size_t bytes_len)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         errno = 0;
@@ -519,7 +519,7 @@ If you know the length beforehand, it is more efficient to call `lite3_ctx_set_s
 static inline int _lite3_ctx_set_str_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, const char *__restrict str)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         size_t str_size = strlen(str) + 1;
@@ -561,7 +561,7 @@ Set string in object by length
 static inline int _lite3_ctx_set_str_n_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, const char *__restrict str, size_t str_len)
 {
         int ret;
-        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz)) < 0)
+        if ((ret = _lite3_verify_obj_set(ctx->buf, &ctx->buflen, ofs, ctx->bufsz, key)) < 0)
                 return ret;
         lite3_val *val;
         size_t str_size = str_len + 1;
@@ -595,15 +595,16 @@ Set object in object
 #define lite3_ctx_set_obj(ctx, ofs, key, out_ofs) ({ \
         lite3_ctx *__lite3_ctx__ = (ctx); \
         size_t __lite3_ofs__ = (ofs); \
+        const char *__lite3_key__ = (key); \
         int __lite3_ret__; \
         if ((__lite3_ret__ = _lite3_verify_obj_set( \
                 __lite3_ctx__->buf, \
                 &__lite3_ctx__->buflen, \
                 __lite3_ofs__, \
-                __lite3_ctx__->bufsz)) < 0) \
+                __lite3_ctx__->bufsz, \
+                __lite3_key__)) < 0) \
                 return __lite3_ret__; \
         \
-        const char *__lite3_key__ = (key); \
         errno = 0; \
         while ((__lite3_ret__ = lite3_set_obj_impl( \
                 __lite3_ctx__->buf, \
@@ -636,15 +637,16 @@ Set array in object
 #define lite3_ctx_set_arr(ctx, ofs, key, out_ofs) ({ \
         lite3_ctx *__lite3_ctx__ = (ctx); \
         size_t __lite3_ofs__ = (ofs); \
+        const char *__lite3_key__ = (key); \
         int __lite3_ret__; \
         if ((__lite3_ret__ = _lite3_verify_obj_set( \
                 __lite3_ctx__->buf, \
                 &__lite3_ctx__->buflen, \
                 __lite3_ofs__, \
-                __lite3_ctx__->bufsz)) < 0) \
+                __lite3_ctx__->bufsz, \
+                __lite3_key__)) < 0) \
                 return __lite3_ret__; \
         \
-        const char *__lite3_key__ = (key); \
         errno = 0; \
         while ((__lite3_ret__ = lite3_set_arr_impl( \
                 __lite3_ctx__->buf, \
@@ -1202,13 +1204,28 @@ static inline void lite3_ctx_print(lite3_ctx *ctx) { (void)ctx; }
 #endif
 
 /**
+Get the root type of a Lite³ buffer
+
+@param[in]      ctx (`lite3_ctx *`) context pointer
+
+@return `lite3_type` on success (`LITE3_TYPE_OBJECT` or `LITE3_TYPE_ARRAY`)
+@return `LITE3_TYPE_INVALID` on error (empty/uninitialized buffer)
+*/
+static inline enum lite3_type lite3_ctx_get_root_type(lite3_ctx *ctx)
+{
+        if (_lite3_verify_get(ctx->buf, ctx->buflen, 0) < 0)
+                return LITE3_TYPE_INVALID;
+        return (enum lite3_type)(*(ctx->buf));
+}
+
+/**
 Find value by key and return value type
 
 @param[in]      ctx (`lite3_ctx *`) context pointer
 @param[in]      ofs (`size_t`) start offset (0 == root)
 @param[in]      key (`const char *`) key
 
-@return lite3_type on success
+@return `lite3_type` on success
 @return `LITE3_TYPE_INVALID` on error (key cannot be found)
 */
 #define lite3_ctx_get_type(ctx, ofs, key) ({ \
@@ -1218,15 +1235,24 @@ Find value by key and return value type
 #ifndef DOXYGEN_IGNORE
 static inline enum lite3_type _lite3_ctx_get_type_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return LITE3_TYPE_INVALID;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return LITE3_TYPE_INVALID;
-        enum lite3_type type = (enum lite3_type)val->type;
-        return type;
+        return _lite3_get_type_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
+
+/**
+Find array value by index and return value type
+
+@param[in]      ctx (`lite3_ctx *`) context pointer
+@param[in]      ofs (`size_t`) start offset (0 == root)
+@param[in]      index (`uint32_t`) array index
+
+@return `lite3_type` on success
+@return `LITE3_TYPE_INVALID` on error (index out of bounds)
+*/
+static inline enum lite3_type lite3_ctx_arr_get_type(lite3_ctx *ctx, size_t ofs, uint32_t index)
+{
+        return lite3_arr_get_type(ctx->buf, ctx->buflen, ofs, index);
+}
 
 /**
 Find value by key and write back type size
@@ -1249,19 +1275,7 @@ For variable sized types like `LITE3_TYPE_BYTES` or `LITE3_TYPE_STRING`, the num
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_ctx_get_type_size_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out)
 {
-        int ret;
-        if ((ret = _lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        lite3_val *val;
-        if ((ret = lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val)) < 0)
-                return ret;
-        if (val->type == LITE3_TYPE_STRING || val->type == LITE3_TYPE_BYTES) {
-                *out = 0;
-                memcpy(out, &val->val, lite3_type_sizes[LITE3_TYPE_BYTES]);
-                return ret;
-        }
-        *out = lite3_type_sizes[val->type];
-        return ret;
+        return _lite3_get_type_size_impl(ctx->buf, ctx->buflen, ofs, key, key_data, out);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1282,12 +1296,7 @@ Attempt to find a key
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_exists_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return true;
+        return _lite3_exists_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1304,17 +1313,7 @@ static inline int lite3_ctx_count(
         size_t ofs,             ///< [in] start offset (0 == root)
         uint32_t *out)          ///< [out] number of object entries or array elements
 {
-        int ret;
-        if ((ret = _lite3_verify_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        enum lite3_type type = (enum lite3_type)(*(ctx->buf + ofs));
-        if (LITE3_UNLIKELY(!(type == LITE3_TYPE_OBJECT || type == LITE3_TYPE_ARRAY))) {
-                LITE3_PRINT_ERROR("INVALID ARGUMENT: EXPECTING ARRAY OR OBJECT TYPE\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out = (*(uint32_t *)(ctx->buf + ofs + LITE3_NODE_SIZE_KC_OFFSET)) >> LITE3_NODE_SIZE_SHIFT;
-        return ret;
+        return lite3_count(ctx->buf, ctx->buflen, ofs, out);
 }
 
 /**
@@ -1334,12 +1333,7 @@ Find value by key and test for null type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_is_null_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return val->type == LITE3_TYPE_NULL;
+        return _lite3_is_null_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1360,12 +1354,7 @@ Find value by key and test for bool type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_is_bool_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return val->type == LITE3_TYPE_BOOL;
+        return _lite3_is_bool_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1386,12 +1375,7 @@ Find value by key and test for integer type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_is_i64_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return val->type == LITE3_TYPE_I64;
+        return _lite3_is_i64_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1412,12 +1396,7 @@ Find value by key and test for floating point type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_is_f64_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return val->type == LITE3_TYPE_F64;
+        return _lite3_is_f64_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1438,12 +1417,7 @@ Find value by key and test for bytes type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_is_bytes_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return val->type == LITE3_TYPE_BYTES;
+        return _lite3_is_bytes_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1464,12 +1438,7 @@ Find value by key and test for string type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_is_str_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return val->type == LITE3_TYPE_STRING;
+        return _lite3_is_str_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1490,12 +1459,8 @@ Find value by key and test for object type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_is_obj_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return val->type == LITE3_TYPE_OBJECT;
+
+        return _lite3_is_obj_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1516,12 +1481,7 @@ Find value by key and test for array type
 #ifndef DOXYGEN_IGNORE
 static inline bool _lite3_ctx_is_arr_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data)
 {
-        if (_lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs) < 0)
-                return false;
-        lite3_val *val;
-        if (lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val) < 0)
-                return false;
-        return val->type == LITE3_TYPE_ARRAY;
+        return _lite3_is_arr_impl(ctx->buf, ctx->buflen, ofs, key, key_data);
 }
 #endif // DOXYGEN_IGNORE
 /// @} lite3_ctx_utility
@@ -1587,19 +1547,7 @@ Get boolean value by key
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_ctx_get_bool_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, bool *out)
 {
-        int ret;
-        if ((ret = _lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        lite3_val *val;
-        if ((ret = lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_BOOL)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_BOOL\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out = (bool)(*(val->val));
-        return ret;
+        return _lite3_get_bool_impl(ctx->buf, ctx->buflen, ofs, key, key_data, out);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1621,19 +1569,7 @@ Get integer value by key
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_ctx_get_i64_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, int64_t *out)
 {
-        int ret;
-        if ((ret = _lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        lite3_val *val;
-        if ((ret = lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_I64)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_I64\n");
-                errno = EINVAL;
-                return -1;
-        }
-        memcpy(out, val->val, lite3_type_sizes[LITE3_TYPE_I64]);
-        return ret;
+        return _lite3_get_i64_impl(ctx->buf, ctx->buflen, ofs, key, key_data, out);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1655,19 +1591,7 @@ Get floating point value by key
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_ctx_get_f64_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, double *out)
 {
-        int ret;
-        if ((ret = _lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        lite3_val *val;
-        if ((ret = lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_F64)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_F64\n");
-                errno = EINVAL;
-                return -1;
-        }
-        memcpy(out, val->val, lite3_type_sizes[LITE3_TYPE_F64]);
-        return ret;
+        return _lite3_get_f64_impl(ctx->buf, ctx->buflen, ofs, key, key_data, out);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1689,24 +1613,7 @@ Get bytes value by key
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_ctx_get_bytes_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, lite3_bytes *out)
 {
-        int ret;
-        if ((ret = _lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        lite3_val *val;
-        if ((ret = lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_BYTES)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_BYTES\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out = (lite3_bytes){
-                .gen = *(uint32_t *)(ctx->buf),
-                .len = 0,
-                .ptr = val->val + lite3_type_sizes[LITE3_TYPE_BYTES]
-        };
-        memcpy(&out->len, val->val, lite3_type_sizes[LITE3_TYPE_BYTES]);
-        return ret;
+        return _lite3_get_bytes_impl(ctx->buf, ctx->buflen, ofs, key, key_data, out);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1728,25 +1635,7 @@ Get string value by key
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_ctx_get_str_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, lite3_str *out)
 {
-        int ret;
-        if ((ret = _lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        lite3_val *val;
-        if ((ret = lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_STRING)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_STRING\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out = (lite3_str){
-                .gen = *(uint32_t *)(ctx->buf),
-                .len = 0,
-                .ptr = (char *)(val->val + lite3_type_sizes[LITE3_TYPE_STRING])
-        };
-        memcpy(&out->len, val->val, lite3_type_sizes[LITE3_TYPE_STRING]);
-        --out->len; // Lite³ stores string size including NULL-terminator. Correction required for public API.
-        return ret;
+        return _lite3_get_str_impl(ctx->buf, ctx->buflen, ofs, key, key_data, out);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1768,19 +1657,7 @@ Get object by key
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_ctx_get_obj_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs)
 {
-        int ret;
-        if ((ret = _lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        lite3_val *val;
-        if ((ret = lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_OBJECT)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_OBJECT\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out_ofs = (size_t)((uint8_t *)val - ctx->buf);
-        return ret;
+        return _lite3_get_obj_impl(ctx->buf, ctx->buflen, ofs, key, key_data, out_ofs);
 }
 #endif // DOXYGEN_IGNORE
 
@@ -1802,19 +1679,7 @@ Get array by key
 #ifndef DOXYGEN_IGNORE
 static inline int _lite3_ctx_get_arr_impl(lite3_ctx *ctx, size_t ofs, const char *__restrict key, lite3_key_data key_data, size_t *__restrict out_ofs)
 {
-        int ret;
-        if ((ret = _lite3_verify_obj_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        lite3_val *val;
-        if ((ret = lite3_get_impl(ctx->buf, ctx->buflen, ofs, key, key_data, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_ARRAY)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_ARRAY\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out_ofs = (size_t)((uint8_t *)val - ctx->buf);
-        return ret;
+        return _lite3_get_arr_impl(ctx->buf, ctx->buflen, ofs, key, key_data, out_ofs);
 }
 #endif // DOXYGEN_IGNORE
 /// @} lite3_ctx_get
@@ -1849,17 +1714,7 @@ static inline int lite3_ctx_arr_get_bool(
         uint32_t index,         ///< [in] array index
         bool *out)              ///< [out] boolean value
 {
-        lite3_val *val;
-        int ret;
-        if ((ret = _lite3_get_by_index(ctx->buf, ctx->buflen, ofs, index, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_BOOL)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_BOOL\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out = (bool)(*(val->val));
-        return ret;
+        return lite3_arr_get_bool(ctx->buf, ctx->buflen, ofs, index, out);
 }
 
 /**
@@ -1874,17 +1729,7 @@ static inline int lite3_ctx_arr_get_i64(
         uint32_t index,         ///< [in] array index
         int64_t *out)           ///< [out] integer value
 {
-        lite3_val *val;
-        int ret;
-        if ((ret = _lite3_get_by_index(ctx->buf, ctx->buflen, ofs, index, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_I64)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_I64\n");
-                errno = EINVAL;
-                return -1;
-        }
-        memcpy(out, val->val, lite3_type_sizes[LITE3_TYPE_I64]);
-        return ret;
+        return lite3_arr_get_i64(ctx->buf, ctx->buflen, ofs, index, out);
 }
 
 /**
@@ -1899,17 +1744,7 @@ static inline int lite3_ctx_arr_get_f64(
         uint32_t index,         ///< [in] array index
         double *out)            ///< [out] floating point value
 {
-        lite3_val *val;
-        int ret;
-        if ((ret = _lite3_get_by_index(ctx->buf, ctx->buflen, ofs, index, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_F64)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_F64\n");
-                errno = EINVAL;
-                return -1;
-        }
-        memcpy(out, val->val, lite3_type_sizes[LITE3_TYPE_F64]);
-        return ret;
+        return lite3_arr_get_f64(ctx->buf, ctx->buflen, ofs, index, out);
 }
 
 /**
@@ -1924,22 +1759,7 @@ static inline int lite3_ctx_arr_get_bytes(
         uint32_t index,         ///< [in] array index
         lite3_bytes *out)       ///< [out] bytes value
 {
-        lite3_val *val;
-        int ret;
-        if ((ret = _lite3_get_by_index(ctx->buf, ctx->buflen, ofs, index, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_BYTES)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_BYTES\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out = (lite3_bytes){
-                .gen = *(uint32_t *)(ctx->buf),
-                .len = 0,
-                .ptr = val->val + lite3_type_sizes[LITE3_TYPE_BYTES]
-        };
-        memcpy(&out->len, val->val, lite3_type_sizes[LITE3_TYPE_BYTES]);
-        return ret;
+        return lite3_arr_get_bytes(ctx->buf, ctx->buflen, ofs, index, out);
 }
 
 /**
@@ -1954,23 +1774,7 @@ static inline int lite3_ctx_arr_get_str(
         uint32_t index,         ///< [in] array index
         lite3_str *out)         ///< [out] string value
 {
-        lite3_val *val;
-        int ret;
-        if ((ret = _lite3_get_by_index(ctx->buf, ctx->buflen, ofs, index, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_STRING)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_STRING\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out = (lite3_str){
-                .gen = *(uint32_t *)(ctx->buf),
-                .len = 0,
-                .ptr = (char *)(val->val + lite3_type_sizes[LITE3_TYPE_STRING])
-        };
-        memcpy(&out->len, val->val, lite3_type_sizes[LITE3_TYPE_STRING]);
-        --out->len; // Lite³ stores string size including NULL-terminator. Correction required for public API.
-        return ret;
+        return lite3_arr_get_str(ctx->buf, ctx->buflen, ofs, index, out);
 }
 
 /**
@@ -1985,17 +1789,7 @@ static inline int lite3_ctx_arr_get_obj(
         uint32_t index,                 ///< [in] array index
         size_t *__restrict out_ofs)     ///< [out] object offset
 {
-        lite3_val *val;
-        int ret;
-        if ((ret = _lite3_get_by_index(ctx->buf, ctx->buflen, ofs, index, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_OBJECT)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_OBJECT\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out_ofs = (size_t)((uint8_t *)val - (ctx->buf));
-        return ret;
+        return lite3_arr_get_obj(ctx->buf, ctx->buflen, ofs, index, out_ofs);
 }
 
 /**
@@ -2010,17 +1804,7 @@ static inline int lite3_ctx_arr_get_arr(
         uint32_t index,                 ///< [in] array index
         size_t *__restrict out_ofs)     ///< [out] array offset
 {
-        lite3_val *val;
-        int ret;
-        if ((ret = _lite3_get_by_index(ctx->buf, ctx->buflen, ofs, index, &val)) < 0)
-                return ret;
-        if (LITE3_UNLIKELY(val->type != LITE3_TYPE_ARRAY)) {
-                LITE3_PRINT_ERROR("VALUE TYPE != LITE3_TYPE_ARRAY\n");
-                errno = EINVAL;
-                return -1;
-        }
-        *out_ofs = (size_t)((uint8_t *)val - (ctx->buf));
-        return ret;
+        return lite3_arr_get_arr(ctx->buf, ctx->buflen, ofs, index, out_ofs);
 }
 /// @} lite3_ctx_arr_get
 
@@ -2056,10 +1840,7 @@ static inline int lite3_ctx_iter_create(
         size_t ofs,             ///< [in] start offset (0 == root)
         lite3_iter *out)        ///< [out] iterator struct pointer
 {
-        int ret;
-        if ((ret = _lite3_verify_get(ctx->buf, ctx->buflen, ofs)) < 0)
-                return ret;
-        return lite3_iter_create_impl(ctx->buf, ctx->buflen, ofs, out);
+        return lite3_iter_create(ctx->buf, ctx->buflen, ofs, out);
 }
 
 /**
