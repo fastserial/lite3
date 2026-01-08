@@ -35,34 +35,34 @@
 #include "lite3.h"
 
 
-unsigned char buf[2048];
-
 
 int main()
 {
+	unsigned char buf[2048];
 	size_t buflen = 0;
+	size_t bufsz = sizeof(buf);
 
-	if (lite3_init_obj(buf, &buflen, sizeof(buf)) < 0) {
+	if (lite3_init_obj(buf, &buflen, bufsz) < 0) {
 		perror("Failed to initialize object");
 		return 1;
 	}
 
-	if (lite3_set_i64(buf, &buflen, 0, sizeof(buf), "user_id", 12345)				< 0
-	|| lite3_set_str(buf, &buflen, 0, sizeof(buf), "username", "jdoe")				< 0
-	|| lite3_set_str(buf, &buflen, 0, sizeof(buf), "email_address", "jdoe@example.com")		< 0
-	|| lite3_set_bool(buf, &buflen, 0, sizeof(buf), "is_active", true)				< 0
-	|| lite3_set_f64(buf, &buflen, 0, sizeof(buf), "account_balance", 259.75)			< 0
-	|| lite3_set_str(buf, &buflen, 0, sizeof(buf), "signup_date_str", "2023-08-15")			< 0
-	|| lite3_set_str(buf, &buflen, 0, sizeof(buf), "last_login_date_iso", "2025-09-13T13:20:00Z")	< 0
-	|| lite3_set_i64(buf, &buflen, 0, sizeof(buf), "birth_year", 1996)				< 0
-	|| lite3_set_str(buf, &buflen, 0, sizeof(buf), "phone_number", "+14155555671")			< 0
-	|| lite3_set_str(buf, &buflen, 0, sizeof(buf), "preferred_language", "en")			< 0
-	|| lite3_set_str(buf, &buflen, 0, sizeof(buf), "time_zone", "Europe/Berlin")			< 0
-	|| lite3_set_i64(buf, &buflen, 0, sizeof(buf), "loyalty_points", 845)				< 0
-	|| lite3_set_f64(buf, &buflen, 0, sizeof(buf), "avg_session_length_minutes", 14.3)		< 0
-	|| lite3_set_bool(buf, &buflen, 0, sizeof(buf), "newsletter_subscribed", false)			< 0
-	|| lite3_set_str(buf, &buflen, 0, sizeof(buf), "ip_address", "192.168.0.42")			< 0
-	|| lite3_set_null(buf, &buflen, 0, sizeof(buf), "notes")					< 0) {
+	if (lite3_set_i64(buf, &buflen, 0, bufsz, "user_id", 12345)				< 0
+	|| lite3_set_str(buf, &buflen, 0, bufsz, "username", "jdoe")				< 0
+	|| lite3_set_str(buf, &buflen, 0, bufsz, "email_address", "jdoe@example.com")		< 0
+	|| lite3_set_bool(buf, &buflen, 0, bufsz, "is_active", true)				< 0
+	|| lite3_set_f64(buf, &buflen, 0, bufsz, "account_balance", 259.75)			< 0
+	|| lite3_set_str(buf, &buflen, 0, bufsz, "signup_date_str", "2023-08-15")			< 0
+	|| lite3_set_str(buf, &buflen, 0, bufsz, "last_login_date_iso", "2025-09-13T13:20:00Z")	< 0
+	|| lite3_set_i64(buf, &buflen, 0, bufsz, "birth_year", 1996)				< 0
+	|| lite3_set_str(buf, &buflen, 0, bufsz, "phone_number", "+14155555671")			< 0
+	|| lite3_set_str(buf, &buflen, 0, bufsz, "preferred_language", "en")			< 0
+	|| lite3_set_str(buf, &buflen, 0, bufsz, "time_zone", "Europe/Berlin")			< 0
+	|| lite3_set_i64(buf, &buflen, 0, bufsz, "loyalty_points", 845)				< 0
+	|| lite3_set_f64(buf, &buflen, 0, bufsz, "avg_session_length_minutes", 14.3)		< 0
+	|| lite3_set_bool(buf, &buflen, 0, bufsz, "newsletter_subscribed", false)			< 0
+	|| lite3_set_str(buf, &buflen, 0, bufsz, "ip_address", "192.168.0.42")			< 0
+	|| lite3_set_null(buf, &buflen, 0, bufsz, "notes")					< 0) {
 		perror("Failed to insert key");
 		return 1;
 	}
