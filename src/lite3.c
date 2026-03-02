@@ -447,19 +447,19 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 			return -1;
 		}
 		#ifdef LITE3_PREFETCHING
-		__builtin_prefetch(buf + node->child_ofs[(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK],      0, 2); // prefetch next nodes
-		__builtin_prefetch(buf + node->child_ofs[(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 2);
-		__builtin_prefetch(buf + node->child_ofs[(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK],      0, 2);
-		__builtin_prefetch(buf + node->child_ofs[(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 2);
+		__builtin_prefetch(buf + node->child_ofs[(u32)(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK],      0, 2); // prefetch next nodes
+		__builtin_prefetch(buf + node->child_ofs[(u32)(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 2);
+		__builtin_prefetch(buf + node->child_ofs[(u32)(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK],      0, 2);
+		__builtin_prefetch(buf + node->child_ofs[(u32)(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 2);
 		#endif
 	}
 	#ifdef LITE3_PREFETCHING
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 0) & LITE3_NODE_KEY_COUNT_MASK],      0, 0); // prefetch next items
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 0) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
+	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 0) & LITE3_NODE_KEY_COUNT_MASK],      0, 0); // prefetch next items
+	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 0) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
+	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK],      0, 0);
+	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
+	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK],      0, 0);
+	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
 	#endif
 	return LITE3_ITER_ITEM;
 }
