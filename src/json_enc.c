@@ -77,6 +77,7 @@ int _lite3_json_enc_switch(const unsigned char *buf, size_t buflen, size_t nesti
                 *yy_val = yyjson_mut_double(doc, lite3_val_f64(val));
                 break;
         case LITE3_TYPE_BYTES:
+                ;
                 size_t bytes_len;
                 const u8 *bytes = lite3_val_bytes(val, &bytes_len);
                 int b64_len;
@@ -98,6 +99,7 @@ int _lite3_json_enc_switch(const unsigned char *buf, size_t buflen, size_t nesti
                 free(b64);
                 break;
         case LITE3_TYPE_STRING:
+                ;
                 size_t str_len;
                 const char *str = lite3_val_str_n(val, &str_len);
                 /*

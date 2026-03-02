@@ -676,6 +676,7 @@ int lite3_set_impl(
 
 			if (i < key_count && node->hashes[i] == attempt_key.hash) {			// matching key found, already exists?
 key_match_skip:
+				;
 				size_t target_ofs = node->kv_ofs[i];
 				size_t key_start_ofs = target_ofs;
 				if (key) {
