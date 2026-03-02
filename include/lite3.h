@@ -326,7 +326,7 @@ Changing this setting also requires changing other settings. See `struct node` i
 
 #ifndef DOXYGEN_IGNORE
 #define LITE3_NODE_SIZE_SHIFT 6
-#define LITE3_NODE_SIZE_MASK ((u32)~((1 << 6) - 1)) // 26 MSB
+#define LITE3_NODE_SIZE_MASK ((uint32_t)~((1 << 6) - 1)) // 26 MSB
 
 #define LITE3_DJB2_HASH_SEED ((uint32_t)5381)
 #endif // DOXYGEN_IGNORE
