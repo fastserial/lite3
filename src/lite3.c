@@ -243,9 +243,7 @@ int lite3_get_impl(
 		
 		lite3_key_data attempt_key = key_data;
 		attempt_key.hash = key_data.hash + attempt * attempt;
-		#ifdef LITE3_DEBUG
-			LITE3_PRINT_DEBUG("probe attempt: %u\thash: %u\n", attempt, attempt_key.hash);
-		#endif
+		// LITE3_PRINT_DEBUG("probe attempt: %u\thash: %u\n", attempt, attempt_key.hash);
 
 		struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
 
@@ -558,9 +556,8 @@ int lite3_set_impl(
 		
 		lite3_key_data attempt_key = key_data;
 		attempt_key.hash = key_data.hash + attempt * attempt;
-		#ifdef LITE3_DEBUG
-			LITE3_PRINT_DEBUG("probe attempt: %u\thash: %u\n", attempt, attempt_key.hash);
-		#endif
+		// LITE3_PRINT_DEBUG("probe attempt: %u\thash: %u\n", attempt, attempt_key.hash);
+
 
 		size_t entry_size = base_entry_size;
 		struct node *restrict parent = NULL;
@@ -674,7 +671,7 @@ int lite3_set_impl(
 			while (i < key_count && node->hashes[i] < attempt_key.hash)
 				i++;
 			
-			LITE3_PRINT_DEBUG("i: %i\tkc: %i\tnode->hashes[i]: %u\n", i, key_count, node->hashes[i]);
+			// LITE3_PRINT_DEBUG("i: %i\tkc: %i\tnode->hashes[i]: %u\n", i, key_count, node->hashes[i]);
 
 			if (i < key_count && node->hashes[i] == attempt_key.hash) {			// matching key found, already exists?
 key_match_skip:
@@ -755,7 +752,7 @@ key_match_skip:
 					node->hashes[j] = node->hashes[j - 1];
 					node->kv_ofs[j] = node->kv_ofs[j - 1];
 				}
-				LITE3_PRINT_DEBUG("INSERTING HASH: %u\ti: %i\n", attempt_key.hash, i);
+				// LITE3_PRINT_DEBUG("INSERTING HASH: %u\ti: %i\n", attempt_key.hash, i);
 				node->hashes[i] = attempt_key.hash;
 				node->size_kc = (node->size_kc & ~LITE3_NODE_KEY_COUNT_MASK)
 				                  | ((node->size_kc + 1) & LITE3_NODE_KEY_COUNT_MASK);	// key_count++
