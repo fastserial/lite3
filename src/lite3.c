@@ -131,12 +131,18 @@ static inline int _verify_key(
 	size_t *restrict inout_ofs,     	// key entry offset (relative to *buf)
 	size_t *restrict out_key_tag_size)	// key tag size (optionally call with NULL)
 {
-	if (LITE3_UNLIKELY(LITE3_KEY_TAG_SIZE_MAX > buflen || *inout_ofs > buflen - LITE3_KEY_TAG_SIZE_MAX)) {
+	if (LITE3_UNLIKELY(LITE3_KEY_TAG_SIZE_MIN > buflen || *inout_ofs > buflen - LITE3_KEY_TAG_SIZE_MIN)) {
 		LITE3_PRINT_ERROR("KEY ENTRY OUT OF BOUNDS\n");
 		errno = EFAULT;
 		return -1;
 	}
 	size_t _key_tag_size = (size_t)((*((u8 *)(buf + *inout_ofs)) & LITE3_KEY_TAG_SIZE_MASK) + 1);
+	
+	if (LITE3_UNLIKELY(_key_tag_size > buflen || *inout_ofs > buflen - _key_tag_size)) {
+		LITE3_PRINT_ERROR("KEY ENTRY OUT OF BOUNDS\n");
+		errno = EFAULT;
+		return -1;
+	}
 	if (key_tag_size) {
 		if (key_tag_size != _key_tag_size) {
 			LITE3_PRINT_ERROR("KEY TAG SIZE DOES NOT MATCH\n");
