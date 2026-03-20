@@ -394,16 +394,18 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 	size_t target_ofs = node->kv_ofs[iter->node_i[iter->depth]];
 
 	int ret;
-	if (type == LITE3_TYPE_OBJECT && out_key) {					// write back key if not NULL
+	if (type == LITE3_TYPE_OBJECT) {						// write back key if not NULL
 		size_t key_tag_size;
 		size_t key_start_ofs = target_ofs;
 		if ((ret = _verify_key(buf, buflen, NULL, 0, 0, &target_ofs, &key_tag_size)) < 0)
 			return ret;
-		out_key->gen = iter->gen;
-		out_key->len = 0;
-		memcpy(&out_key->len, buf + key_start_ofs, key_tag_size);
-		--out_key->len; // Lite³ stores string size including NULL-terminator. Correction required for public API.
-		out_key->ptr = (const char *)(buf + key_start_ofs + key_tag_size);
+		if (out_key) {
+			out_key->gen = iter->gen;
+			out_key->len = 0;
+			memcpy(&out_key->len, buf + key_start_ofs, key_tag_size);
+			--out_key->len; // Lite³ stores string size including NULL-terminator. Correction required for public API.
+			out_key->ptr = (const char *)(buf + key_start_ofs + key_tag_size);
+		}
 	}
 	if (out_val_ofs) {								// write back val if not NULL
 		size_t val_start_ofs = target_ofs;
