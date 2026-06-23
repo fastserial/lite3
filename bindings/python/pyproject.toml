@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=64", "Cython>=3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lite3"
+version = "0.0.1"
+description = "Python binding for the Lite³ zero-copy serialization format"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools]
+packages = ["lite3"]
