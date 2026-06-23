@@ -122,6 +122,90 @@ def test_fuzz_typed_writes():
         assert Lite3.from_bytes(m.to_bytes()).to_dict() == top, top
 
 
+def test_int_overflow_raises():
+    m = Lite3()
+    m["ok"] = 2**63 - 1            # max int64, fine
+    for bad in (2**63, -2**63 - 1, 2**70):
+        try:
+            m["x"] = bad
+        except OverflowError:
+            pass
+        else:
+            raise AssertionError("expected OverflowError for %d" % bad)
+
+
+def test_write_blocked_while_memoryview_held():
+    m = Lite3()
+    m["a"] = 1
+    mv = memoryview(m)
+    try:
+        m["b"] = 2            # would realloc under a live export -> must refuse
+    except BufferError:
+        pass
+    else:
+        raise AssertionError("expected BufferError while memoryview held")
+    finally:
+        mv.release()
+    m["b"] = 2               # ok once released
+    assert m["b"] == 2
+
+
+def test_stale_view_raises():
+    # A held sub-view must raise (not read garbage) once a write goes through
+    # another handle and relocates buffer nodes.
+    m = Lite3.from_dict({"xs": [1, 2, 3], "tag": "a"})
+    xs = m["xs"]
+    assert xs[0] == 1                    # fine before any write
+    m["tag"] = "this is a much longer value that forces a relocation"
+    try:
+        xs[0]                            # xs is now stale
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("stale view did not raise")
+    assert m["xs"][0] == 1               # re-fetch from root works
+
+    # Writing *through* a held root view keeps that same view valid.
+    a = Lite3.new_array()
+    r = a.root()
+    r.extend([1, "two", 3])
+    r[1] = "a longer string"             # relocation, but r did the write
+    r.append(4)
+    assert r[0] == 1 and r[3] == 4       # r still usable
+    assert a.to_dict() == [1, "a longer string", 3, 4]
+
+
+def test_stale_view_mid_iteration():
+    # Start consuming an array, let an external write relocate the buffer,
+    # then resume: the iterator must raise, not yield stale/garbage elements.
+    m = Lite3.from_dict({"xs": [10, 20, 30, 40], "tag": "a"})
+    it = iter(m["xs"])
+    assert next(it) == 10                # consumed one element
+    m["tag"] = "a much longer value that forces the buffer to relocate"
+    try:
+        next(it)                         # resume after external mutation
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("iterator did not detect external mutation")
+
+
+def test_eq_and_hash():
+    a = Lite3.from_dict({"x": 1, "y": [1, 2]})
+    b = Lite3.from_dict({"x": 1, "y": [1, 2]})
+    c = Lite3.from_dict({"x": 2})
+    assert a == b and hash(a) == hash(b)
+    assert a != c
+    assert a != "not a lite3"
+
+
+def test_repr_is_cheap_and_does_not_hydrate():
+    m = Lite3.from_dict({"a": 1, "b": 2, "tags": [1, 2, 3]})
+    assert "Lite3" in repr(m)
+    assert "_ObjView" in repr(m.root())
+    assert repr(m["tags"]) == "<_ArrView len=3>"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

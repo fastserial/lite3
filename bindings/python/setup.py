@@ -40,4 +40,4 @@ ext = Extension(
     extra_compile_args=["-O2", "-std=gnu11", "-DNDEBUG"],
 )
 
-setup(ext_modules=cythonize([ext], language_level=3))
+setup(ext_modules=cythonize([ext], language_level=3))  # packages/package-data in pyproject.toml

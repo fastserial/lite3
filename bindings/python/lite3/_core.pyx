@@ -81,16 +81,38 @@ cdef enum:
     T_ARRAY = 7
     T_INVALID = 8
 
+# int64 range as Python ints; outside this a Python int would silently wrap on
+# the C cast. Kept as Python objects so the comparison stays a PyObject compare
+# (a cdef int64_t folds to an out-of-range C literal the compiler warns on).
+cdef object _I64_MIN = -0x8000000000000000
+cdef object _I64_MAX =  0x7fffffffffffffff
+
+
+cdef inline int _chk(int r) except -1:
+    # The C write API returns <0 on buffer-full / overflow / bad offset.
+    if r < 0:
+        raise ValueError("lite3 write failed (buffer full or invalid offset)")
+    return 0
+
 
 cdef class Lite3:
     """Owns a Lite³ context. Index it like the root object/array for lazy reads."""
     cdef lite3_ctx *c
+    cdef int _exports   # live memoryview count; writes are blocked while >0
+    cdef int _gen       # write generation; bumped after each mutation so held
+                        # sub-views can detect that the buffer moved under them
 
     def __cinit__(self):
         self.c = l3_create(1024)
         if self.c is NULL:
             raise MemoryError("lite3 context allocation failed")
         l3_init_obj(self.c)   # empty object by default; from_*/new_array overwrite
+
+    cdef int _check_writable(self) except -1:
+        # A write can realloc the buffer, dangling any exported memoryview.
+        if self._exports > 0:
+            raise BufferError("cannot mutate Lite3 while a memoryview is held")
+        return 0
 
     def __dealloc__(self):
         if self.c is not NULL:
@@ -187,6 +209,24 @@ cdef class Lite3:
         buffer.strides = NULL
         buffer.suboffsets = NULL
         buffer.internal = NULL
+        self._exports += 1
+
+    def __releasebuffer__(self, Py_buffer *buffer):
+        self._exports -= 1
+
+    def __repr__(self):
+        cdef int t = l3_root_type(self.c)
+        kind = "array" if t == T_ARRAY else "object" if t == T_OBJECT else "uninitialized"
+        return "<Lite3 %s, %d bytes>" % (kind, l3_buflen(self.c))
+
+    def __eq__(self, other):
+        # Wire-buffer equality: same serialized bytes == equal.
+        if not isinstance(other, Lite3):
+            return NotImplemented
+        return bytes(memoryview(self)) == bytes(memoryview(other))
+
+    def __hash__(self):
+        return hash(bytes(memoryview(self)))
 
 
 cdef object _scalar_by_key(Lite3 owner, size_t ofs, str key):
@@ -248,64 +288,72 @@ cdef object _scalar_by_index(Lite3 owner, size_t ofs, uint32_t i):
 
 
 cdef int _set_value(Lite3 owner, size_t ofs, str key, object v) except -1:
+    owner._check_writable()
     cdef bytes kb = key.encode()
     cdef const char *k = kb
     cdef bytes sb
     cdef size_t child
     if v is None:
-        l3_set_null(owner.c, ofs, k)
+        _chk(l3_set_null(owner.c, ofs, k))
     elif v is True or v is False:          # bool before int (bool is an int subclass)
-        l3_set_bool(owner.c, ofs, k, 1 if v else 0)
+        _chk(l3_set_bool(owner.c, ofs, k, 1 if v else 0))
     elif isinstance(v, int):
-        l3_set_i64(owner.c, ofs, k, <int64_t>v)
+        if v < _I64_MIN or v > _I64_MAX:
+            raise OverflowError("int exceeds 64-bit range: %r" % v)
+        _chk(l3_set_i64(owner.c, ofs, k, <int64_t>v))
     elif isinstance(v, float):
-        l3_set_f64(owner.c, ofs, k, <double>v)
+        _chk(l3_set_f64(owner.c, ofs, k, <double>v))
     elif isinstance(v, str):
         sb = v.encode()
-        l3_set_str(owner.c, ofs, k, sb, len(sb))
+        _chk(l3_set_str(owner.c, ofs, k, sb, len(sb)))
     elif isinstance(v, (bytes, bytearray)):
         sb = bytes(v)
-        l3_set_bytes(owner.c, ofs, k, <const uint8_t*>(<char*>sb), len(sb))
+        _chk(l3_set_bytes(owner.c, ofs, k, <const uint8_t*>(<char*>sb), len(sb)))
     elif isinstance(v, dict):
-        l3_set_obj(owner.c, ofs, k, &child)
+        _chk(l3_set_obj(owner.c, ofs, k, &child))
         for kk, vv in v.items():
             _set_value(owner, child, kk, vv)
     elif isinstance(v, (list, tuple)):
-        l3_set_arr(owner.c, ofs, k, &child)
+        _chk(l3_set_arr(owner.c, ofs, k, &child))
         for item in v:
             _append_value(owner, child, item)
     else:
         raise TypeError("unsupported value type: %r" % type(v))
+    owner._gen += 1   # buffer may have moved; held sub-views are now stale
     return 0
 
 
 cdef int _append_value(Lite3 owner, size_t ofs, object v) except -1:
+    owner._check_writable()
     cdef bytes sb
     cdef size_t child
     if v is None:
-        l3_app_null(owner.c, ofs)
+        _chk(l3_app_null(owner.c, ofs))
     elif v is True or v is False:
-        l3_app_bool(owner.c, ofs, 1 if v else 0)
+        _chk(l3_app_bool(owner.c, ofs, 1 if v else 0))
     elif isinstance(v, int):
-        l3_app_i64(owner.c, ofs, <int64_t>v)
+        if v < _I64_MIN or v > _I64_MAX:
+            raise OverflowError("int exceeds 64-bit range: %r" % v)
+        _chk(l3_app_i64(owner.c, ofs, <int64_t>v))
     elif isinstance(v, float):
-        l3_app_f64(owner.c, ofs, <double>v)
+        _chk(l3_app_f64(owner.c, ofs, <double>v))
     elif isinstance(v, str):
         sb = v.encode()
-        l3_app_str(owner.c, ofs, sb, len(sb))
+        _chk(l3_app_str(owner.c, ofs, sb, len(sb)))
     elif isinstance(v, (bytes, bytearray)):
         sb = bytes(v)
-        l3_app_bytes(owner.c, ofs, <const uint8_t*>(<char*>sb), len(sb))
+        _chk(l3_app_bytes(owner.c, ofs, <const uint8_t*>(<char*>sb), len(sb)))
     elif isinstance(v, dict):
-        l3_app_obj(owner.c, ofs, &child)
+        _chk(l3_app_obj(owner.c, ofs, &child))
         for kk, vv in v.items():
             _set_value(owner, child, kk, vv)
     elif isinstance(v, (list, tuple)):
-        l3_app_arr(owner.c, ofs, &child)
+        _chk(l3_app_arr(owner.c, ofs, &child))
         for item in v:
             _append_value(owner, child, item)
     else:
         raise TypeError("unsupported value type: %r" % type(v))
+    owner._gen += 1   # buffer may have moved; held sub-views are now stale
     return 0
 
 
@@ -313,32 +361,36 @@ cdef int _append_value(Lite3 owner, size_t ofs, object v) except -1:
 # in the l3_* family called). A new type means editing three sites. Collapse to one
 # dispatcher parameterized by the leaf-writer if a fourth target ever appears.
 cdef int _set_index_value(Lite3 owner, size_t ofs, uint32_t i, object v) except -1:
+    owner._check_writable()
     cdef bytes sb
     cdef size_t child
     if v is None:
-        l3_arr_set_null(owner.c, ofs, i)
+        _chk(l3_arr_set_null(owner.c, ofs, i))
     elif v is True or v is False:
-        l3_arr_set_bool(owner.c, ofs, i, 1 if v else 0)
+        _chk(l3_arr_set_bool(owner.c, ofs, i, 1 if v else 0))
     elif isinstance(v, int):
-        l3_arr_set_i64(owner.c, ofs, i, <int64_t>v)
+        if v < _I64_MIN or v > _I64_MAX:
+            raise OverflowError("int exceeds 64-bit range: %r" % v)
+        _chk(l3_arr_set_i64(owner.c, ofs, i, <int64_t>v))
     elif isinstance(v, float):
-        l3_arr_set_f64(owner.c, ofs, i, <double>v)
+        _chk(l3_arr_set_f64(owner.c, ofs, i, <double>v))
     elif isinstance(v, str):
         sb = v.encode()
-        l3_arr_set_str(owner.c, ofs, i, sb, len(sb))
+        _chk(l3_arr_set_str(owner.c, ofs, i, sb, len(sb)))
     elif isinstance(v, (bytes, bytearray)):
         sb = bytes(v)
-        l3_arr_set_bytes(owner.c, ofs, i, <const uint8_t*>(<char*>sb), len(sb))
+        _chk(l3_arr_set_bytes(owner.c, ofs, i, <const uint8_t*>(<char*>sb), len(sb)))
     elif isinstance(v, dict):
-        l3_arr_set_obj(owner.c, ofs, i, &child)
+        _chk(l3_arr_set_obj(owner.c, ofs, i, &child))
         for kk, vv in v.items():
             _set_value(owner, child, kk, vv)
     elif isinstance(v, (list, tuple)):
-        l3_arr_set_arr(owner.c, ofs, i, &child)
+        _chk(l3_arr_set_arr(owner.c, ofs, i, &child))
         for item in v:
             _append_value(owner, child, item)
     else:
         raise TypeError("unsupported value type: %r" % type(v))
+    owner._gen += 1   # buffer may have moved; held sub-views are now stale
     return 0
 
 
@@ -351,34 +403,49 @@ cdef class _ObjView:
     """
     cdef Lite3 owner
     cdef size_t ofs
+    cdef int _gen
 
     def __cinit__(self, Lite3 owner, size_t ofs):
         self.owner = owner
         self.ofs = ofs
+        self._gen = owner._gen
+
+    cdef int _stale_check(self) except -1:
+        # A write through some other handle may have relocated this node.
+        if self._gen != self.owner._gen:
+            raise RuntimeError("stale Lite3 view: re-fetch from root after a write")
+        return 0
 
     def __getitem__(self, str key):
+        self._stale_check()
         if l3_get_type(self.owner.c, self.ofs, key.encode()) >= T_INVALID:
             raise KeyError(key)
         return _scalar_by_key(self.owner, self.ofs, key)
 
     def __setitem__(self, str key, value):
+        self._stale_check()
         _set_value(self.owner, self.ofs, key, value)
+        self._gen = self.owner._gen   # this view did the write; it stays valid
 
     def get(self, str key, default=None):
+        self._stale_check()
         if l3_get_type(self.owner.c, self.ofs, key.encode()) >= T_INVALID:
             return default
         return _scalar_by_key(self.owner, self.ofs, key)
 
     def __contains__(self, str key):
+        self._stale_check()
         return l3_get_type(self.owner.c, self.ofs, key.encode()) < T_INVALID
 
     def __len__(self):
+        self._stale_check()
         cdef long n = l3_count(self.owner.c, self.ofs)
         if n < 0:
             raise ValueError("count failed")
         return n
 
     def keys(self):
+        self._stale_check()
         cdef l3_iter *it = l3_iter_new(self.owner.c, self.ofs)
         cdef const char *kp
         cdef size_t kl
@@ -403,17 +470,33 @@ cdef class _ObjView:
         return {k: (v.to_dict() if isinstance(v, (_ObjView, _ArrView)) else v)
                 for k, v in self.items()}
 
+    def __repr__(self):
+        # Keys only, capped — never hydrate values (could be the whole document).
+        ks = self.keys()
+        shown = ", ".join(repr(k) for k in ks[:8])
+        if len(ks) > 8:
+            shown += ", ... +%d" % (len(ks) - 8)
+        return "<_ObjView keys={%s}>" % shown
+
 
 cdef class _ArrView:
     """Lazy proxy over a Lite³ array at a buffer offset."""
     cdef Lite3 owner
     cdef size_t ofs
+    cdef int _gen
 
     def __cinit__(self, Lite3 owner, size_t ofs):
         self.owner = owner
         self.ofs = ofs
+        self._gen = owner._gen
+
+    cdef int _stale_check(self) except -1:
+        if self._gen != self.owner._gen:
+            raise RuntimeError("stale Lite3 view: re-fetch from root after a write")
+        return 0
 
     def __len__(self):
+        self._stale_check()
         cdef long n = l3_count(self.owner.c, self.ofs)
         if n < 0:
             raise ValueError("count failed")
@@ -434,19 +517,28 @@ cdef class _ArrView:
         if i < 0 or i >= n:
             raise IndexError(i)
         _set_index_value(self.owner, self.ofs, <uint32_t>i, value)
+        self._gen = self.owner._gen   # this view did the write; it stays valid
 
     def __iter__(self):
         for i in range(len(self)):
             yield self[i]
 
     def append(self, value):
+        self._stale_check()
         _append_value(self.owner, self.ofs, value)
+        self._gen = self.owner._gen
 
     def extend(self, values):
+        self._stale_check()
         for v in values:
             _append_value(self.owner, self.ofs, v)
+        self._gen = self.owner._gen
 
     def to_list(self):
         return [(v.to_dict() if isinstance(v, (_ObjView, _ArrView)) else v) for v in self]
 
     to_dict = to_list
+
+    def __repr__(self):
+        # Length only — never hydrate elements.
+        return "<_ArrView len=%d>" % len(self)

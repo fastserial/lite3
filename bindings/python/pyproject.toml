@@ -13,3 +13,6 @@ test = ["pytest"]
 
 [tool.setuptools]
 packages = ["lite3"]
+
+[tool.setuptools.package-data]
+lite3 = ["py.typed", "*.pyi"]  # PEP 561 stubs ship with the wheel
