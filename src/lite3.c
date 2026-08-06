@@ -697,10 +697,12 @@ key_match_skip:
 				size_t val_start_ofs = target_ofs;
 				if (_verify_val(buf, *inout_buflen, &target_ofs) < 0)
 					return -1;
-				if (val_len >= target_ofs - val_start_ofs) {				// value is too large, we must append
-					size_t alignment_mask = val_len == lite3_type_sizes[LITE3_TYPE_OBJECT] ? (size_t)LITE3_NODE_ALIGNMENT_MASK : 0;
+				size_t alignment_mask = val_len == lite3_type_sizes[LITE3_TYPE_OBJECT] ? (size_t)LITE3_NODE_ALIGNMENT_MASK : 0;
+				size_t alignment_padding = ((val_start_ofs + alignment_mask) & ~alignment_mask) - val_start_ofs;
+				if (alignment_padding > target_ofs - val_start_ofs
+				    || val_len >= target_ofs - val_start_ofs - alignment_padding) {	// value is too large, we must append
 					size_t unaligned_val_ofs = *inout_buflen + key_tag_size + (size_t)attempt_key.size;
-					size_t alignment_padding = ((unaligned_val_ofs + alignment_mask) & ~alignment_mask) - unaligned_val_ofs;
+					alignment_padding = ((unaligned_val_ofs + alignment_mask) & ~alignment_mask) - unaligned_val_ofs;
 					entry_size += alignment_padding;
 					if (LITE3_UNLIKELY(entry_size > bufsz || *inout_buflen > bufsz - entry_size)) {
 						LITE3_PRINT_ERROR("NO BUFFER SPACE FOR ENTRY INSERTION\n");
@@ -718,6 +720,11 @@ key_match_skip:
 					node->kv_ofs[i] = (u32)*inout_buflen;
 					goto insert_append;
 					// TODO: add lost bytes to GC index
+				}
+				if (alignment_padding) {
+					memmove(buf + key_start_ofs + alignment_padding, buf + key_start_ofs, val_start_ofs - key_start_ofs);
+					node->kv_ofs[i] += (u32)alignment_padding;
+					val_start_ofs += alignment_padding;
 				}
 				#ifdef LITE3_ZERO_MEM_DELETED
 					memset(buf + val_start_ofs, LITE3_ZERO_MEM_8, target_ofs - val_start_ofs); // zero out value

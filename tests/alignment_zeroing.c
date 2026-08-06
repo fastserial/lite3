@@ -107,6 +107,22 @@ int main() {
 	assert(buf[test_buflen + 1] == LITE3_ZERO_MEM_8);
 
 	#endif // LITE3_ZERO_MEM_EXTRA
+
+	memset(buf, 0xEE, bufsz);
+	buflen = 0;
+	assert(lite3_init_obj(buf, &buflen, bufsz) == 0);
+
+	char large_value[128];
+	memset(large_value, 'x', sizeof(large_value) - 1);
+	large_value[sizeof(large_value) - 1] = '\0';
+	assert(lite3_set_str(buf, &buflen, 0, bufsz, "key", large_value) == 0);
+
+	size_t overwrite_buflen = buflen;
+	size_t nested_ofs;
+	assert(lite3_set_obj(buf, &buflen, 0, bufsz, "key", &nested_ofs) == 0);
+	assert(buflen == overwrite_buflen);
+	assert((nested_ofs & LITE3_NODE_ALIGNMENT_MASK) == 0);
+	assert(lite3_get_type(buf, buflen, 0, "key") == LITE3_TYPE_OBJECT);
+
 	return 0;
 }
-
