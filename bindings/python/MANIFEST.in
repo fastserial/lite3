@@ -1,0 +1,4 @@
+recursive-include _vendor *.c *.h LICENSE
+recursive-include src *.c *.h
+include lite3/_core.pyx
+include lite3/py.typed lite3/*.pyi
