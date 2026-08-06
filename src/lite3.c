@@ -553,9 +553,12 @@ int lite3_set_impl(
 		return -1;
 	}
 
-	u32 gen = root->gen_type >> LITE3_NODE_GEN_SHIFT;
+	struct node *generation_root = root;
+	if (ofs)
+		generation_root = __builtin_assume_aligned((struct node *)buf, LITE3_NODE_ALIGNMENT);
+	u32 gen = generation_root->gen_type >> LITE3_NODE_GEN_SHIFT;
 	++gen;
-	root->gen_type = (root->gen_type & ~LITE3_NODE_GEN_MASK) | (gen << LITE3_NODE_GEN_SHIFT);
+	generation_root->gen_type = (generation_root->gen_type & ~LITE3_NODE_GEN_MASK) | (gen << LITE3_NODE_GEN_SHIFT);
 	
 	uint32_t probe_attempts = key ? LITE3_HASH_PROBE_MAX : 1U;
 	for (uint32_t attempt = 0; attempt < probe_attempts; attempt++) {
