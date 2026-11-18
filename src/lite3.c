@@ -553,6 +553,9 @@ int lite3_set_impl(
 		return -1;
 	}
 
+	// A null key selects an array. Appends follow every existing index.
+	bool append_at_end = !key && key_data.hash == (root->size_kc >> LITE3_NODE_SIZE_SHIFT);
+
 	struct node *generation_root = root;
 	if (ofs)
 		generation_root = __builtin_assume_aligned((struct node *)buf, LITE3_NODE_ALIGNMENT);
@@ -676,7 +679,7 @@ int lite3_set_impl(
 			}
 
 			key_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
-			i = 0;
+			i = append_at_end ? key_count : 0;
 			while (i < key_count && node->hashes[i] < attempt_key.hash)
 				i++;
 			
