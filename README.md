@@ -260,6 +260,15 @@ For learning how to use Lite³, it is recommended to follow the [How-to Guide se
 Remember that we judge the behavior of formats by their implementation rather than by their official spec. This is because we cannot judge the behavior of hypothetical non-existent implementations.
 
 
+## Building and publishing large buffers
+
+- When you have all the integers for a root array, use
+  `lite3_init_i64_array` to build the existing Lite3 tree in one pass.
+  The result supports the ordinary array getters, iterator, and edits.
+- To publish a document after many variable-length edits, call
+  `lite3_compact_copy` with a separate destination buffer. It copies the
+  live entries. The source and its references stay valid.
+
 ## Releasing
 
 1. Match the release version in `lite3.pc` to the planned tag, such as

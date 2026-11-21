@@ -709,6 +709,25 @@ int lite3_init_arr(
         size_t *__restrict out_buflen,  ///< [out] buffer used length
         size_t bufsz                    ///< [in] buffer max size
 );
+/**
+Build a root array from count consecutive signed 64-bit integers.
+The input and output must not overlap. The result uses ordinary Lite3
+nodes and supports the usual reads and edits. On error, out_buflen and
+the output are unchanged. Pass NULL for values only when count is zero.
+*/
+int lite3_init_i64_array(unsigned char *buf, size_t *out_buflen, size_t bufsz,
+                        const int64_t *values, uint32_t count);
+/**
+Copy the live entries of a Lite3 document into a separate caller-owned buffer.
+Both buffers must have Lite3 node alignment and must not overlap. The source
+and its references remain valid. The destination may contain partial output on
+error; out_buflen changes only on success. Insufficient capacity sets ENOBUFS.
+This operation accepts well-formed documents with at most 32 nested containers.
+*/
+int lite3_compact_copy(const unsigned char *src, size_t src_len,
+                       unsigned char *dst, size_t *out_buflen, size_t dst_capacity);
+
+
 /// @} lite3_init
 
 

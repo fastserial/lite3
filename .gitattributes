@@ -2,3 +2,4 @@
 Makefile whitespace=cr-at-eol
 README.md whitespace=cr-at-eol
 include/lite3.h whitespace=cr-at-eol
+src/json_dec.c whitespace=cr-at-eol

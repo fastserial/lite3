@@ -27,7 +27,7 @@
       ___ __/ /___/ / / /_ /  __/____/ 
            /_____/_/  \__/ \___/       
 */
-#include "lite3.h"
+#include "lite3_context_api.h"
 
 
 
@@ -255,45 +255,71 @@ int _lite3_json_dec_arr(unsigned char *buf, size_t *restrict inout_buflen, size_
         return ret;
 }
 
-int _lite3_json_dec_doc(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz, yyjson_doc *doc)
+static int build_json_doc(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz, yyjson_doc *doc)
 {
         yyjson_val *root_val = yyjson_doc_get_root(doc);
         int ret = 0;
         switch (yyjson_get_type(root_val)) {
         case YYJSON_TYPE_OBJ:
                 if ((ret = lite3_init_obj(buf, out_buflen, bufsz)) < 0)
-                        goto error;
+                        return ret;
                 if ((ret = _lite3_json_dec_obj(buf, out_buflen, 0, bufsz, 0, doc, root_val)) < 0)
-                        goto error;
+                        return ret;
                 break;
         case YYJSON_TYPE_ARR:
                 if ((ret = lite3_init_arr(buf, out_buflen, bufsz)) < 0)
-                        goto error;
+                        return ret;
                 if ((ret = _lite3_json_dec_arr(buf, out_buflen, 0, bufsz, 0, doc, root_val)) < 0)
-                        goto error;
+                        return ret;
                 break;
         default:
                 LITE3_PRINT_ERROR("FAILED TO READ JSON: EXPECTING ARRAY OR OBJECT TYPE\n");
                 errno = EINVAL;
-                goto error;
+                return ret;
         }
-        yyjson_doc_free(doc);
         return ret;
-error:
+}
+
+int _lite3_json_dec_doc(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz, yyjson_doc *doc)
+{
+        int ret = build_json_doc(buf, out_buflen, bufsz, doc);
         yyjson_doc_free(doc);
         return ret;
 }
 
-int lite3_json_dec(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz, const char *restrict json_str, size_t json_len)
+static yyjson_doc *parse_json_string(const char *json_str, size_t json_len)
 {
         yyjson_read_err err;
         yyjson_doc *doc = yyjson_read_opts((char *)json_str, json_len, YYJSON_READ_NOFLAG , NULL, &err);
         if (!doc) {
                 LITE3_PRINT_ERROR("FAILED TO READ JSON STRING\tyyjson error code: %u\tmsg:%s\tat byte position: %lu\n", err.code, err.msg, err.pos);
                 errno = EINVAL;
-                return -1;
         }
-        return _lite3_json_dec_doc(buf, out_buflen, bufsz, doc);
+        return doc;
+}
+
+int lite3_json_dec(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz, const char *restrict json_str, size_t json_len)
+{
+        yyjson_doc *doc = parse_json_string(json_str, json_len);
+        return doc ? _lite3_json_dec_doc(buf, out_buflen, bufsz, doc) : -1;
+}
+
+int lite3_ctx_json_dec(lite3_ctx *ctx, const char *restrict json_str, size_t json_len)
+{
+        errno = 0;
+        yyjson_doc *doc = parse_json_string(json_str, json_len);
+        if (!doc)
+                return -1;
+
+        int ret;
+        do {
+                ret = build_json_doc(ctx->buf, &ctx->buflen, ctx->bufsz, doc);
+        } while (ret < 0 && errno == ENOBUFS && lite3_ctx_grow_impl(ctx) == 0);
+
+        int saved_errno = errno;
+        yyjson_doc_free(doc);
+        errno = saved_errno;
+        return ret;
 }
 
 int lite3_json_dec_file(unsigned char *buf, size_t *restrict out_buflen, size_t bufsz, const char *restrict path)
