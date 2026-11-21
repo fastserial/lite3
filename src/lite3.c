@@ -88,6 +88,20 @@ static_assert(offsetof(struct node, size_kc) == LITE3_NODE_SIZE_KC_OFFSET, "Offs
 static_assert(sizeof(((struct node *)0)->size_kc) == sizeof(uint32_t), "Node size checks expect to read (struct node).size_kc as uint32_t");
 static_assert(sizeof(((struct node *)0)->gen_type) == sizeof(((lite3_iter *)0)->gen), "Iterator expects to read (struct node).gen_type as uint32_t");
 
+/* Check bounds and alignment before promising alignment to the compiler. */
+static inline struct node *checked_read_node(const unsigned char *buf, size_t len, size_t ofs)
+{
+	if (LITE3_UNLIKELY(len < LITE3_NODE_SIZE || ofs > len - LITE3_NODE_SIZE)) {
+		errno = EFAULT;
+		return NULL;
+	}
+	if (LITE3_UNLIKELY(((uintptr_t)(buf + ofs) & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
+		errno = EBADMSG;
+		return NULL;
+	}
+	return __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
+}
+
 #define LITE3_NODE_TYPE_SHIFT 0
 #define LITE3_NODE_TYPE_MASK ((u32)((1 << 8) - 1))  // 8 LSB
 
@@ -251,13 +265,10 @@ int lite3_get_impl(
 		attempt_key.hash = key_data.hash + attempt * attempt;
 		// LITE3_PRINT_DEBUG("probe attempt: %u\thash: %u\n", attempt, attempt_key.hash);
 
-		struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
+		struct node *restrict node = checked_read_node(buf, buflen, ofs);
 
-		if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-			LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-			errno = EBADMSG;
+		if (LITE3_UNLIKELY(!node))
 			return -1;
-		}
 
 		int key_count;
 		int i;
@@ -284,18 +295,10 @@ int lite3_get_impl(
 			}
 			if (node->child_ofs[0]) {						// if children, walk to next node
 				size_t next_node_ofs = (size_t)node->child_ofs[i];
-				node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
+				node = checked_read_node(buf, buflen, next_node_ofs);
 
-				if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-					LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-					errno = EBADMSG;
+				if (LITE3_UNLIKELY(!node))
 					return -1;
-				}
-				if (LITE3_UNLIKELY(next_node_ofs > buflen - LITE3_NODE_SIZE)) {
-					LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
-					errno = EFAULT;
-					return -1;
-				}
 				if (LITE3_UNLIKELY(++node_walks > LITE3_TREE_HEIGHT_MAX)) {
 					LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
 					errno = EBADMSG;
@@ -317,13 +320,10 @@ int lite3_iter_create_impl(const unsigned char *buf, size_t buflen, size_t ofs, 
 {
 	LITE3_PRINT_DEBUG("CREATE ITER\n");
 
-	struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + ofs), LITE3_NODE_ALIGNMENT);
+	struct node *restrict node = checked_read_node(buf, buflen, ofs);
 
-	if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-		LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-		errno = EBADMSG;
+	if (LITE3_UNLIKELY(!node))
 		return -1;
-	}
 
 	enum lite3_type type = node->gen_type & LITE3_NODE_TYPE_MASK;
 	if (LITE3_UNLIKELY(!(type == LITE3_TYPE_OBJECT || type == LITE3_TYPE_ARRAY))) {
@@ -331,7 +331,10 @@ int lite3_iter_create_impl(const unsigned char *buf, size_t buflen, size_t ofs, 
 		errno = EINVAL;
 		return -1;
 	}
-	out->gen = ((struct node *)buf)->gen_type;
+	const struct node *root = ofs ? checked_read_node(buf, buflen, 0) : node;
+	if (LITE3_UNLIKELY(!root))
+		return -1;
+	out->gen = root->gen_type;
 	out->depth = 0;
 	out->node_ofs[0] = (u32)ofs;
 	out->node_i[0] = 0;
@@ -339,52 +342,48 @@ int lite3_iter_create_impl(const unsigned char *buf, size_t buflen, size_t ofs, 
 	while (node->child_ofs[0]) {							// has children, travel down
 		u32 next_node_ofs = node->child_ofs[0];
 
-		node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
+		node = checked_read_node(buf, buflen, next_node_ofs);
 
-		if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-			LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-			errno = EBADMSG;
+		if (LITE3_UNLIKELY(!node))
 			return -1;
-		}
 		if (LITE3_UNLIKELY(++out->depth > LITE3_TREE_HEIGHT_MAX)) {
 			LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
 			errno = EBADMSG;
-			return -1;
-		}
-		if (LITE3_UNLIKELY((size_t)next_node_ofs > buflen - LITE3_NODE_SIZE)) {
-			LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
-			errno = EFAULT;
 			return -1;
 		}
 		out->node_ofs[out->depth] = next_node_ofs;
 		out->node_i[out->depth] = 0;
 	}
 	#ifdef LITE3_PREFETCHING
-	__builtin_prefetch(buf + node->kv_ofs[0],      0, 0); // prefetch first few items
-	__builtin_prefetch(buf + node->kv_ofs[0] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[1],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[1] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[2],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[2] + 64, 0, 0);
+	// Prefetch occupied entries only; short values may end within one cache line.
+	u32 prefetch_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
+	for (u32 i = 0; i < prefetch_count && i < 3; i++) {
+		size_t offset = node->kv_ofs[i];
+		if (offset < buflen) {
+			__builtin_prefetch(buf + offset, 0, 0);
+			if (buflen - offset > 64)
+				__builtin_prefetch(buf + offset + 64, 0, 0);
+		}
+	}
 	#endif
 	return 0;
 }
 
 int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, lite3_str *out_key, size_t *out_val_ofs)
 {
-	if (LITE3_UNLIKELY(iter->gen != ((struct node *)buf)->gen_type)) {
+	const struct node *root = checked_read_node(buf, buflen, 0);
+	if (LITE3_UNLIKELY(!root))
+		return -1;
+	if (LITE3_UNLIKELY(iter->gen != root->gen_type)) {
 		LITE3_PRINT_ERROR("ITERATOR INVALID: iter->gen != node->gen_type (BUFFER MUTATION INVALIDATES ITERATORS)\n");
 		errno = EINVAL;
 		return -1;
 	}
 
-	struct node *restrict node = __builtin_assume_aligned((struct node *)(buf + iter->node_ofs[iter->depth]), LITE3_NODE_ALIGNMENT);
+	struct node *restrict node = checked_read_node(buf, buflen, iter->node_ofs[iter->depth]);
 
-	if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-		LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-		errno = EBADMSG;
+	if (LITE3_UNLIKELY(!node))
 		return -1;
-	}
 
 	enum lite3_type type = node->gen_type & LITE3_NODE_TYPE_MASK;
 	if (LITE3_UNLIKELY(!(type == LITE3_TYPE_OBJECT || type == LITE3_TYPE_ARRAY))) {
@@ -423,21 +422,12 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 	while (node->child_ofs[iter->node_i[iter->depth]]) {				// has children, travel down
 		u32 next_node_ofs = node->child_ofs[iter->node_i[iter->depth]];
 
-		node = __builtin_assume_aligned((struct node *)(buf + next_node_ofs), LITE3_NODE_ALIGNMENT);
-		
-		if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-			LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-			errno = EBADMSG;
+		node = checked_read_node(buf, buflen, next_node_ofs);
+		if (LITE3_UNLIKELY(!node))
 			return -1;
-		}
 		if (LITE3_UNLIKELY(++iter->depth > LITE3_TREE_HEIGHT_MAX)) {
 			LITE3_PRINT_ERROR("NODE WALKS EXCEEDED LITE3_TREE_HEIGHT_MAX\n");
 			errno = EBADMSG;
-			return -1;
-		}
-		if (LITE3_UNLIKELY((size_t)next_node_ofs > buflen - LITE3_NODE_SIZE)) {
-			LITE3_PRINT_ERROR("NODE WALK OFFSET OUT OF BOUNDS\n");
-			errno = EFAULT;
 			return -1;
 		}
 		iter->node_ofs[iter->depth] = next_node_ofs;
@@ -445,27 +435,33 @@ int lite3_iter_next(const unsigned char *buf, size_t buflen, lite3_iter *iter, l
 	}
 	while (iter->depth > 0 && (iter->node_i[iter->depth] == (node->size_kc & LITE3_NODE_KEY_COUNT_MASK))) { // key_count reached, go up
 		--iter->depth;
-		node = __builtin_assume_aligned((struct node *)(buf + iter->node_ofs[iter->depth]), LITE3_NODE_ALIGNMENT);
-		
-		if (LITE3_UNLIKELY(((uintptr_t)node & LITE3_NODE_ALIGNMENT_MASK) != 0)) {
-			LITE3_PRINT_ERROR("NODE OFFSET NOT ALIGNED TO LITE3_NODE_ALIGNMENT\n");
-			errno = EBADMSG;
+		node = checked_read_node(buf, buflen, iter->node_ofs[iter->depth]);
+		if (LITE3_UNLIKELY(!node))
 			return -1;
-		}
 		#ifdef LITE3_PREFETCHING
-		__builtin_prefetch(buf + node->child_ofs[(u32)(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK],      0, 2); // prefetch next nodes
-		__builtin_prefetch(buf + node->child_ofs[(u32)(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 2);
-		__builtin_prefetch(buf + node->child_ofs[(u32)(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK],      0, 2);
-		__builtin_prefetch(buf + node->child_ofs[(u32)(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 2);
+		u32 child_count = (node->size_kc & LITE3_NODE_KEY_COUNT_MASK) + 1;
+		u32 start = (u32)iter->node_i[iter->depth] + 1;
+		for (u32 i = start; i < child_count && i < start + 2; i++) {
+			size_t offset = node->child_ofs[i];
+			if (offset && offset < buflen) {
+				__builtin_prefetch(buf + offset, 0, 2);
+				if (buflen - offset > 64)
+					__builtin_prefetch(buf + offset + 64, 0, 2);
+			}
+		}
 		#endif
 	}
 	#ifdef LITE3_PREFETCHING
-	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 0) & LITE3_NODE_KEY_COUNT_MASK],      0, 0); // prefetch next items
-	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 0) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 1) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK],      0, 0);
-	__builtin_prefetch(buf + node->kv_ofs[(u32)(iter->node_i[iter->depth] + 2) & LITE3_NODE_KEY_COUNT_MASK] + 64, 0, 0);
+	u32 key_count = node->size_kc & LITE3_NODE_KEY_COUNT_MASK;
+	u32 start = (u32)iter->node_i[iter->depth];
+	for (u32 i = start; i < key_count && i < start + 3; i++) {
+		size_t offset = node->kv_ofs[i];
+		if (offset < buflen) {
+			__builtin_prefetch(buf + offset, 0, 0);
+			if (buflen - offset > 64)
+				__builtin_prefetch(buf + offset + 64, 0, 0);
+		}
+	}
 	#endif
 	return LITE3_ITER_ITEM;
 }

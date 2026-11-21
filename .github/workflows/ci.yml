@@ -1,0 +1,26 @@
+name: CI
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pkg-config on macOS
+        if: runner.os == 'macOS'
+        run: brew install pkgconf
+      - run: make -j2 tests
+      - run: bash scripts/check-install.sh
+      - name: Check iterator bounds with sanitizers
+        if: runner.os == 'Linux'
+        run: |
+          make -j2 tests CC=clang LD=clang OBJ_DIR=obj/sanitized BUILD_DIR=build/sanitized \
+            CPPFLAGS="-Iinclude -Ilib -DLITE3_PREFETCHING" \
+            CFLAGS_DEBUG="-O2 -g -fsanitize=address,undefined -fno-sanitize-recover=all" \
+            LDFLAGS="-fsanitize=address,undefined"

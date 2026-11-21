@@ -173,15 +173,14 @@ If you plan to use compression, this option makes Lite³ structures achieve bett
 #endif // DOXYGEN_ONLY
 
 /**
-Speeds up iterators, but may cause crashes on non-x86 platforms like ARM.
+Enable bounded software prefetching during iteration.
 
-Enabled by default.
-
-This *may* happen when:
-1. reading near unallocated page boundaries
-2. untrusted messages contain invalid offsets
+Disabled by default. Warm-memory traversal benchmarks favor hardware caching
+alone; sparse traversal over larger working sets can benefit from prefetching.
+Measure the application workload before enabling this option. Define it when
+compiling the library, for example with -DLITE3_PREFETCHING.
 */
-#define LITE3_PREFETCHING
+// #define LITE3_PREFETCHING
 
 #if defined(DOXYGEN_ONLY) && !defined(LITE3_PREFETCHING)
 #define LITE3_PREFETCHING
