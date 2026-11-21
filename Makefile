@@ -45,6 +45,8 @@ LD = gcc
 # archive utility
 AR = ar
 ARFLAGS = rcs
+NM = nm
+OBJCOPY = objcopy
 
 
 CFLAGS = -Wall -Wformat=2 -Wextra -Wconversion -Wstrict-aliasing=3 -Wcast-align -Wshadow
@@ -104,31 +106,33 @@ $(BUILD_DIR)/examples/%: $(OBJ_DIR)/examples/%.o $(OBJS) $(LIB_OBJS)
 	@mkdir -p $(dir $@)
 	$(LINK.o)
 
-LOCALIZED_SYMS = $(OBJ_DIR)/localized_syms.txt
-SYMBOL_PREFIX = lite3_internal_
-
-$(LOCALIZED_SYMS): $(LIB_OBJS)
-	@rm -f $@
-	@mkdir -p $(dir $@)
-	@touch $@
-	@for obj in $^; do \
-		nm --defined-only -g $$obj | grep ' [A-TV-Z] ' | awk '{print $$3 " $(SYMBOL_PREFIX)" $$3}' >> $@; \
-	done
-
-$(BUILD_DIR)/$(STATIC_LIB): $(LOCALIZED_SYMS) $(OBJS) $(LIB_OBJS)
-	@if [ -s $(LOCALIZED_SYMS) ]; then \
-		for file in $(OBJS) $(LIB_OBJS); do \
-			objcopy --redefine-syms=$(LOCALIZED_SYMS) $$file $$file.tmp && mv $$file.tmp $$file; \
+# Keep bundled JSON symbols private without changing the original objects.
+$(BUILD_DIR)/$(STATIC_LIB): $(OBJS) $(LIB_OBJS)
+	@mkdir -p $(BUILD_DIR)
+	@set -e; \
+	tmp=$$(mktemp -d "$(BUILD_DIR)/archive.XXXXXX"); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	if [ -z "$(strip $(LIB_OBJS))" ]; then \
+		$(AR) $(ARFLAGS) "$$tmp/lib.a" $^; \
+	elif [ "$$(uname -s)" = Darwin ]; then \
+		$(NM) -gUj $(LIB_OBJS) > "$$tmp/symbols"; \
+		$(CC) -r -nostdlib -Wl,-unexported_symbols_list,"$$tmp/symbols" $^ -o "$$tmp/lite3.o"; \
+		$(AR) $(ARFLAGS) "$$tmp/lib.a" "$$tmp/lite3.o"; \
+	else \
+		$(NM) --defined-only -g $(LIB_OBJS) > "$$tmp/defined"; \
+		awk 'NF == 3 && $$2 ~ /^[A-TV-Z]$$/ {print $$3 " lite3_internal_" $$3}' "$$tmp/defined" > "$$tmp/symbols"; \
+		n=0; \
+		for obj in $^; do \
+			$(OBJCOPY) --redefine-syms="$$tmp/symbols" "$$obj" "$$tmp/$$n.o"; \
+			n=$$((n + 1)); \
 		done; \
-	fi
-	@mkdir -p $(dir $@)
-	$(AR) $(ARFLAGS) $@ $(OBJS) $(LIB_OBJS)
-	@rm -f $(LOCALIZED_SYMS)
-
+		$(AR) $(ARFLAGS) "$$tmp/lib.a" "$$tmp/"*.o; \
+	fi; \
+	mv "$$tmp/lib.a" "$@"
 
 .DEFAULT_GOAL = all
 .PHONY: all
-all: CFLAGS += $(CFLAGS_RELEASE)
+all install: CFLAGS += $(CFLAGS_RELEASE)
 all: $(BUILD_DIR)/$(STATIC_LIB)
 
 .PHONY: examples

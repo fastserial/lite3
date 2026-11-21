@@ -1918,22 +1918,10 @@ Convert JSON string to Lite³
 @note
 This function performs internal memory allocation using `malloc()`.
 */
-static inline int lite3_ctx_json_dec(
+int lite3_ctx_json_dec(
         lite3_ctx *ctx,                 ///< [in] context pointer
         const char *__restrict json_str,///< [in] JSON input string (string)
-        size_t json_len)                ///< [in] JSON input string length (bytes, including or excluding NULL-terminator)
-{
-        int ret;
-        errno = 0;
-        while ((ret = lite3_json_dec(ctx->buf, &ctx->buflen, ctx->bufsz, json_str, json_len)) < 0) {
-                if (errno == ENOBUFS && (lite3_ctx_grow_impl(ctx) == 0)) {
-                        continue;
-                } else {
-                        return ret;
-                }
-        }
-        return ret;
-}
+        size_t json_len);               ///< [in] JSON input string length (bytes, including or excluding NULL-terminator)
 
 /**
 Convert JSON from file path to Lite³

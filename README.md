@@ -145,22 +145,29 @@ For a complete How-to Guide with examples, see [the documentation](https://lite3
 | `make help`       | Show this help message                                    |
 
 ### Installation
-A gcc or clang compiler is required due to the use of various builtins.
+Use GCC or Clang with Make and the platform's linker and archive tools.
+On Linux, install GNU binutils for the default JSON-enabled build. On
+macOS, install the Xcode command-line tools. Install pkg-config if you
+want it to supply compiler and linker flags.
 
-First clone the repository:
-```
+To build a release, download its source archive from
+[GitHub Releases](https://github.com/fastserial/lite3/releases) and unpack it.
+You can also clone the repository and check out the release tag:
+
+```sh
 git clone https://github.com/fastserial/lite3.git
-cd lite3/
+cd lite3
+git checkout <release-tag>
 ```
+
 Then choose between installation via `pkg-config` or manual linking.
 
 #### Installation via pkg-config (easiest)
 Inside the project root, run:
 ```
 sudo make install -j
-sudo ldconfig
 ```
-This will build the static library, then install it to `/usr/local` and refresh the `pkg-config` cache. If installation was successful, you should be able to check the library version like so:
+This will build the static library, then install it to `/usr/local` along with its headers and pkg-config file. If installation was successful, you should be able to check the library version like so:
 ```
 pkg-config --modversion lite3
 ```
@@ -206,7 +213,6 @@ If you installed using `pkg-config`, you may need to reinstall the library to ap
 sudo make uninstall
 sudo make clean
 sudo make install
-sudo ldconfig
 ```
 #### Building Examples
 Examples can be found in separate directories for each API:
@@ -252,6 +258,29 @@ For learning how to use Lite³, it is recommended to follow the [How-to Guide se
 [^5]: Flexbuffers access to scalars and vectors is `O(1)` (ints, floats, etc.). For maps, access is `O(log n)`.
 
 Remember that we judge the behavior of formats by their implementation rather than by their official spec. This is because we cannot judge the behavior of hypothetical non-existent implementations.
+
+
+## Building and publishing large buffers
+
+- When you have all the integers for a root array, use
+  `lite3_init_i64_array` to build the existing Lite3 tree in one pass.
+  The result supports the ordinary array getters, iterator, and edits.
+- To publish a document after many variable-length edits, call
+  `lite3_compact_copy` with a separate destination buffer. It copies the
+  live entries. The source and its references stay valid.
+
+## Releasing
+
+1. Match the release version in `lite3.pc` to the planned tag, such as
+   `1.0.0` and `v1.0.0`.
+2. Check that CI passes on the exact upstream commit. CI runs the tests,
+   builds the library, and links a program against a staged install.
+3. Tag that commit and publish a GitHub release. Use GitHub's source archives.
+   Describe what changed and state whether the C API and stored data remain
+   compatible.
+4. Check that the tag points at the tested commit and that its source archive
+   contains the Makefile, headers, sources, and license. Pass the full commit
+   SHA to downstream users who pin the source.
 
 
 ## Benchmarks

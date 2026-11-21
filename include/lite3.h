@@ -173,15 +173,14 @@ If you plan to use compression, this option makes Lite³ structures achieve bett
 #endif // DOXYGEN_ONLY
 
 /**
-Speeds up iterators, but may cause crashes on non-x86 platforms like ARM.
+Enable bounded software prefetching during iteration.
 
-Enabled by default.
-
-This *may* happen when:
-1. reading near unallocated page boundaries
-2. untrusted messages contain invalid offsets
+Disabled by default. Warm-memory traversal benchmarks favor hardware caching
+alone; sparse traversal over larger working sets can benefit from prefetching.
+Measure the application workload before enabling this option. Define it when
+compiling the library, for example with -DLITE3_PREFETCHING.
 */
-#define LITE3_PREFETCHING
+// #define LITE3_PREFETCHING
 
 #if defined(DOXYGEN_ONLY) && !defined(LITE3_PREFETCHING)
 #define LITE3_PREFETCHING
@@ -710,6 +709,25 @@ int lite3_init_arr(
         size_t *__restrict out_buflen,  ///< [out] buffer used length
         size_t bufsz                    ///< [in] buffer max size
 );
+/**
+Build a root array from count consecutive signed 64-bit integers.
+The input and output must not overlap. The result uses ordinary Lite3
+nodes and supports the usual reads and edits. On error, out_buflen and
+the output are unchanged. Pass NULL for values only when count is zero.
+*/
+int lite3_init_i64_array(unsigned char *buf, size_t *out_buflen, size_t bufsz,
+                        const int64_t *values, uint32_t count);
+/**
+Copy the live entries of a Lite3 document into a separate caller-owned buffer.
+Both buffers must have Lite3 node alignment and must not overlap. The source
+and its references remain valid. The destination may contain partial output on
+error; out_buflen changes only on success. Insufficient capacity sets ENOBUFS.
+This operation accepts well-formed documents with at most 32 nested containers.
+*/
+int lite3_compact_copy(const unsigned char *src, size_t src_len,
+                       unsigned char *dst, size_t *out_buflen, size_t dst_capacity);
+
+
 /// @} lite3_init
 
 
