@@ -15,7 +15,7 @@ As a result, the serialization boundary has been broken: 'parsing' or 'serializi
 
 Compared to other binary formats, Lite³ is schemaless, self-describing (no IDL or schema definitions required) and **supports conversion to/from JSON**, enabling compatibility with existing datasets/APIs and allowing for easy debugging/inspecting of messages.
 
-Thanks to the cache-friendly properties of the B-tree and the very minimalistic C implementation (9.3 kB), Lite³ outperforms the fastest JSON libraries (that make use of SIMD) by up to 120x depending on the benchmark. It also outperforms schema-only formats, such as Google Flatbuffers (242x). Lite³ is possibly the fastest schemaless data format in the world.
+The [benchmark results](#benchmarks) report write time, scan time, and encoded size for specific workloads.
 
 Example to illustrate:
 1. A Lite³ message is received from a socket
@@ -145,6 +145,12 @@ For a complete How-to Guide with examples, see [the documentation](https://lite3
 | `make help`       | Show this help message                                    |
 
 ### Installation
+
+**Tested platforms.** CI builds, tests, and checks a staged installation on
+Ubuntu Linux (x86-64) and macOS (arm64). The Linux job also runs the C tests
+with AddressSanitizer and UndefinedBehaviorSanitizer. The 1.1.0 source
+archive also passed a build and install check on Debian 13 (arm64).
+
 Use GCC or Clang with Make and the platform's linker and archive tools.
 On Linux, install GNU binutils for the default JSON-enabled build. On
 macOS, install the Xcode command-line tools. Install pkg-config if you
@@ -284,6 +290,25 @@ Remember that we judge the behavior of formats by their implementation rather th
 
 
 ## Benchmarks
+
+### Lite3 1.1.0
+
+Median times from seven paired trials on one arm64 Mac with Apple Clang 21
+at `-O2`. Each row compares the same input and requested result.
+
+| Workload | Comparison | Median time |
+| --- | --- | ---: |
+| Build a root array of 65,536 signed 64-bit integers | Append one at a time vs. `lite3_init_i64_array` | 982 µs → 101 µs |
+| Read and sum all 65,536 integers | Array built by appends vs. the bulk builder | 200 µs → 184 µs |
+| Convert a 172 kB USGS earthquake response from JSON | Growable context at [`48ab0e9`](https://github.com/fastserial/lite3/commit/48ab0e98d7b3a758afc017e2445c8e70508f1352) vs. 1.1.0 | 610 µs → 332 µs |
+
+Both array measurements use 1.1.0. Bulk construction uses 1.59 MB instead
+of 2.71 MB and produces an ordinary, editable Lite3 buffer. The JSON row
+includes parsing, writing, and any output-buffer growth. Both builds in
+that row had software prefetch disabled. The context can reuse its parsed
+document when it needs to grow. A small input that fits on the first try
+has much less work to save.
+
 ### Simdjson Twitter API Data Benchmark
 This benchmark by the authors of [the official simdjson repository](https://github.com/simdjson/simdjson)
 was created to compare JSON parsing performance for different C/C++ libraries.
