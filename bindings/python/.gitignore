@@ -1,0 +1,8 @@
+.venv/
+build/
+*.o
+*.so
+*.egg-info/
+__pycache__/
+lite3/_core.c
+_vendor/
